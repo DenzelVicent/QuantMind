@@ -109,6 +109,43 @@ def report_to_hosted_result(report: Any) -> dict[str, Any]:
     }
 
 
+async def _resolve_hosted_signal_run_id(
+    tenant_id: str,
+    user_id: str,
+) -> tuple[str | None, str | None]:
+    """解析本轮托管模拟要消费的推理批次。
+
+    托管（含 bootstrap 首次建仓）必须绑定默认模型的单一推理批次。此前调用方
+    从不传 ``signal_run_id``，执行器便退化为「取最新交易日全部信号」，
+    同一天多模型并存时候选池会混合（不同模型 fusion_score 量纲不可比）。
+
+    返回 ``(run_id, error)``：不可用时 ``run_id`` 为 None 并给出可读原因。
+    校验口径复用 ``get_default_model_hosted_status``（默认模型存在性、
+    兜底结果、模型来源、可执行窗口），与手动托管同一套判定。
+    """
+    try:
+        from backend.services.live_trading.services.manual_execution_service import (
+            manual_execution_service,
+        )
+
+        status = await manual_execution_service.get_default_model_hosted_status(
+            tenant_id=tenant_id,
+            user_id=user_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return None, f"signal_batch_resolve_failed: {exc}"[:300]
+
+    if not status.get("available"):
+        reason = str(status.get("reason_code") or "unavailable")
+        message = str(status.get("message") or "")
+        return None, f"signal_batch_unavailable:{reason} {message}"[:300]
+
+    signal_run_id = str(status.get("latest_run_id") or "").strip()
+    if not signal_run_id:
+        return None, "signal_batch_unavailable:missing_run_id"
+    return signal_run_id, None
+
+
 async def run_simulation_cycle_for_active(
     *,
     tenant_id: str,
@@ -124,6 +161,35 @@ async def run_simulation_cycle_for_active(
     params_override: dict[str, Any] = {}
     if cfg.get("pool_id"):
         params_override["pool_id"] = cfg["pool_id"]
+    signal_run_id, gate_error = await _resolve_hosted_signal_run_id(
+        tenant_id, user_id
+    )
+    if not signal_run_id:
+        # 拿不到可用批次时按严格模式不下单；strict=0 可退回旧行为（仅告警）。
+        strict = os.getenv("SIM_HOSTED_STRICT_SIGNAL_BATCH", "1").strip().lower() not in {
+            "0",
+            "false",
+            "no",
+        }
+        logger.warning(
+            "simulation hosted: 未取得可用信号批次 tenant=%s user=%s strategy=%s "
+            "reason=%s strict=%s",
+            tenant_id,
+            user_id,
+            strategy_id,
+            gate_error,
+            strict,
+        )
+        if strict:
+            return {
+                "task_id": run_id,
+                "status": "skipped",
+                "error": gate_error,
+                "signal_count": 0,
+                "order_count": 0,
+                "filled_count": 0,
+            }
+
     report = await simulation_engine.run_cycle(
         tenant_id=tenant_id,
         user_id=user_id,
@@ -131,6 +197,7 @@ async def run_simulation_cycle_for_active(
         run_id=run_id,
         params_override=params_override or None,
         pool_id=cfg.get("pool_id"),
+        signal_run_id=signal_run_id,
     )
     return report_to_hosted_result(report)
 
@@ -587,6 +654,24 @@ class SimulationHostedScheduler:
                 live_trade_config=live_trade_config,
                 run_id=task_id,
             )
+            if result.get("status") == "skipped":
+                # 没有可用信号批次：本轮不建仓，作业标记为 skipped 而非失败。
+                await SimulationRebalanceJobService.mark_skipped(
+                    task_id,
+                    last_error=str(result.get("error") or "signal batch unavailable")[
+                        :300
+                    ],
+                )
+                logger.info(
+                    "simulation hosted cycle skipped: tenant=%s user=%s strategy=%s phase=%s task=%s reason=%s",
+                    tenant_id,
+                    user_id,
+                    strategy_id,
+                    decision.phase,
+                    task_id,
+                    result.get("error"),
+                )
+                return False
             if result.get("status") == "failed" and result.get("error"):
                 err = str(result["error"])
                 if err not in {"无可用信号", "账户不存在"}:

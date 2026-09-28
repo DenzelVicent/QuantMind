@@ -4,8 +4,9 @@ Signal Loader - 从 engine_signal_scores 表加载最新 PK 信号
 
 import logging
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.shared.stock_utils import StockCodeUtil
 
 logger = logging.getLogger(__name__)
+
+_SH_TZ = ZoneInfo("Asia/Shanghai")
 
 
 @dataclass
@@ -87,7 +90,14 @@ class SignalLoader:
         uid = str(user_id or "").strip()
         limit_sql = _sql_limit_clause(limit)
 
-        if run_id:
+        # 未显式指定批次时，先解析「当前已生效的单一批次」再按 run_id 取数。
+        # 见 _resolve_effective_batch：engine_signal_scores.trade_date 是信号
+        # 生效日（T+1），直接取 MAX(trade_date) 会选中尚未生效的未来批次。
+        effective_run_id = run_id or await self._resolve_effective_batch(
+            db, tenant, uid
+        )
+
+        if effective_run_id:
             query = text(f"""
                 SELECT symbol, fusion_score, trade_date, run_id, tenant_id, user_id
                 FROM engine_signal_scores
@@ -101,40 +111,28 @@ class SignalLoader:
             params: dict[str, Any] = {
                 "tenant_id": tenant,
                 "user_id": uid,
-                "run_id": run_id,
+                "run_id": effective_run_id,
                 "min_score": min_score,
             }
         else:
-            query = text(f"""
-                SELECT symbol, fusion_score, trade_date, run_id, tenant_id, user_id
-                FROM engine_signal_scores
-                WHERE tenant_id = :tenant_id
-                  AND user_id = :user_id
-                  AND trade_date = (
-                      SELECT MAX(trade_date) FROM engine_signal_scores
-                      WHERE tenant_id = :tenant_id AND user_id = :user_id
-                  )
-                  AND fusion_score >= :min_score
-                ORDER BY fusion_score DESC
-                {limit_sql}
-            """)
-            params = {
-                "tenant_id": tenant,
-                "user_id": uid,
-                "min_score": min_score,
-            }
-        if limit_sql:
+            # 没有「已生效」的批次：不查库，直接走下方 pred.parquet 兜底，
+            # 绝不能退回 MAX(trade_date)——那会拿到尚未生效的未来批次。
+            query = None
+            params = {}
+        if limit_sql and query is not None:
             params["limit"] = int(limit)  # type: ignore[arg-type]
 
         try:
-            result = await db.execute(query, params)
-            signals = _rows_to_signals(result.fetchall())
+            signals: list[SignalScore] = []
+            if query is not None:
+                result = await db.execute(query, params)
+                signals = _rows_to_signals(result.fetchall())
             logger.info(
                 "SignalLoader: 加载信号 %d 条, tenant=%s user=%s run_id=%s limit=%s",
                 len(signals),
                 tenant,
                 uid,
-                run_id or "latest",
+                effective_run_id or "latest",
                 limit if limit_sql else "all",
             )
             if signals or run_id:
@@ -145,6 +143,65 @@ class SignalLoader:
         except Exception as e:
             logger.error("SignalLoader: 加载信号失败 %s", e, exc_info=True)
             return []
+
+    async def _resolve_effective_batch(
+        self,
+        db: AsyncSession,
+        tenant_id: str,
+        user_id: str,
+    ) -> str | None:
+        """解析当前已生效（trade_date <= 今天）的最新单一信号批次 run_id。
+
+        ``engine_signal_scores.trade_date`` 是「信号生效日」(T+1) 语义
+        （见 selection.py 口径说明与 script_runner 写入的 prediction_trade_date）。
+        直接取 ``MAX(trade_date)`` 会选中尚未生效的未来批次——跨周末/假期时
+        ``next_session`` 会跳到下一个交易日，或补跑历史写入远期日期——导致
+        模拟盘提前交易，且因它恒为 MAX 而长期霸占后续每一轮。
+
+        同一生效日存在多个模型批次时只取最近写入的一个：不同模型的
+        ``fusion_score`` 量纲与归一化不同，混合后按分数排序取 topk 得到的是
+        跨模型不可比的结果。
+        """
+        today = datetime.now(_SH_TZ).date()
+        try:
+            row = (
+                await db.execute(
+                    text(
+                        """
+                        SELECT run_id
+                        FROM engine_signal_scores
+                        WHERE tenant_id = :tenant_id
+                          AND user_id = :user_id
+                          AND trade_date <= :today
+                        GROUP BY run_id, trade_date
+                        ORDER BY trade_date DESC, MAX(created_at) DESC
+                        LIMIT 1
+                        """
+                    ),
+                    {
+                        "tenant_id": tenant_id,
+                        "user_id": user_id,
+                        "today": today,
+                    },
+                )
+            ).first()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "SignalLoader: 解析生效信号批次失败, tenant=%s user=%s err=%s",
+                tenant_id,
+                user_id,
+                exc,
+            )
+            return None
+        if row and row[0]:
+            return str(row[0])
+        logger.warning(
+            "SignalLoader: 无已生效信号批次（trade_date <= %s）, tenant=%s user=%s",
+            today,
+            tenant_id,
+            user_id,
+        )
+        return None
 
     async def _load_pred_parquet_fallback(
         self, tenant_id: str, user_id: str

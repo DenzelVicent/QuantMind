@@ -1,6 +1,17 @@
 from datetime import datetime
+from typing import Any
 from zoneinfo import ZoneInfo
 
+import pytest
+
+from backend.services.live_trading.services import (
+    manual_execution_service as mes_module,
+)
+from backend.services.simulation import engine as engine_module
+from backend.services.simulation.services import (
+    simulation_hosted_scheduler as scheduler,
+)
+from backend.services.simulation.services.signal_loader import SignalLoader
 from backend.services.simulation.services.simulation_hosted_scheduler import (
     _next_scheduled_trigger,
     _normalize_live_trade_config,
@@ -204,4 +215,158 @@ def test_hosted_cycle_ready_skips_sell_only_window():
     assert hosted_cycle_ready("SELL") is False
     assert hosted_cycle_ready("BUY") is True
     assert hosted_cycle_ready("ALL") is True
+
+
+class _FakeResult:
+    def __init__(self, row):
+        self._row = row
+
+    def first(self):
+        return self._row
+
+
+class _FakeDB:
+    """最小 AsyncSession 替身：只记录 SQL 与参数，供批次解析断言使用。"""
+
+    def __init__(self, row):
+        self.row = row
+        self.sql = ""
+        self.params = None
+
+    async def execute(self, query, params=None):
+        self.sql = str(query)
+        self.params = params
+        return _FakeResult(self.row)
+
+
+@pytest.mark.asyncio
+async def test_resolve_effective_batch_only_picks_effective_trade_date():
+    """trade_date 是生效日(T+1)：不得取到未来批次。"""
+    db = _FakeDB(("run_effective",))
+
+    got = await SignalLoader()._resolve_effective_batch(db, "default", "10000001")
+
+    assert got == "run_effective"
+    assert "trade_date <= :today" in db.sql
+    assert db.params["today"] == datetime.now(ZoneInfo("Asia/Shanghai")).date()
+
+
+@pytest.mark.asyncio
+async def test_resolve_effective_batch_returns_none_when_all_batches_future():
+    db = _FakeDB(None)
+
+    assert await SignalLoader()._resolve_effective_batch(db, "default", "1") is None
+
+
+@pytest.mark.asyncio
+async def test_hosted_gate_rejects_unavailable_batch(monkeypatch):
+    async def _unavailable(*, tenant_id, user_id):
+        return {
+            "available": False,
+            "reason_code": "window_expired",
+            "message": "结果已超过可执行窗口",
+        }
+
+    monkeypatch.setattr(
+        mes_module.manual_execution_service,
+        "get_default_model_hosted_status",
+        _unavailable,
+    )
+
+    run_id, err = await scheduler._resolve_hosted_signal_run_id("default", "1")
+
+    assert run_id is None
+    assert err is not None and "window_expired" in err
+
+
+@pytest.mark.asyncio
+async def test_hosted_gate_binds_default_model_batch(monkeypatch):
+    async def _ready(*, tenant_id, user_id):
+        return {"available": True, "latest_run_id": "run_default_model_1"}
+
+    monkeypatch.setattr(
+        mes_module.manual_execution_service,
+        "get_default_model_hosted_status",
+        _ready,
+    )
+
+    assert await scheduler._resolve_hosted_signal_run_id("default", "1") == (
+        "run_default_model_1",
+        None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_skips_without_placing_orders_when_batch_missing(monkeypatch):
+    """无可用批次时必须跳过，绝不能退回「取最新交易日全部信号」。"""
+
+    async def _unavailable(*, tenant_id, user_id):
+        return {
+            "available": False,
+            "reason_code": "missing_default_model",
+            "message": "未找到默认模型",
+        }
+
+    monkeypatch.setattr(
+        mes_module.manual_execution_service,
+        "get_default_model_hosted_status",
+        _unavailable,
+    )
+
+    calls: dict[str, Any] = {}
+
+    class _ExplodingEngine:
+        async def run_cycle(self, **kwargs):
+            calls["kwargs"] = kwargs
+            raise AssertionError("无可用批次时不得下单")
+
+    monkeypatch.setattr(engine_module, "simulation_engine", _ExplodingEngine())
+
+    result = await scheduler.run_simulation_cycle_for_active(
+        tenant_id="default",
+        user_id="10000001",
+        strategy_id="12",
+    )
+
+    assert result["status"] == "skipped"
+    assert "missing_default_model" in str(result["error"])
+    assert "kwargs" not in calls
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_passes_signal_run_id_to_engine(monkeypatch):
+    async def _ready(*, tenant_id, user_id):
+        return {"available": True, "latest_run_id": "run_bound_1"}
+
+    monkeypatch.setattr(
+        mes_module.manual_execution_service,
+        "get_default_model_hosted_status",
+        _ready,
+    )
+
+    calls: dict[str, Any] = {}
+
+    class _FakeReport:
+        run_id = "task_1"
+        error = None
+        signal_count = 3
+        order_count = 1
+        filled_count = 1
+
+    class _FakeEngine:
+        async def run_cycle(self, **kwargs):
+            calls["kwargs"] = kwargs
+            return _FakeReport()
+
+    monkeypatch.setattr(engine_module, "simulation_engine", _FakeEngine())
+
+    result = await scheduler.run_simulation_cycle_for_active(
+        tenant_id="default",
+        user_id="10000001",
+        strategy_id="12",
+        run_id="task_1",
+    )
+
+    assert result["status"] == "succeeded"
+    assert calls["kwargs"]["signal_run_id"] == "run_bound_1"
 
