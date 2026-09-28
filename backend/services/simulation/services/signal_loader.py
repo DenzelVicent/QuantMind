@@ -17,6 +17,45 @@ logger = logging.getLogger(__name__)
 
 _SH_TZ = ZoneInfo("Asia/Shanghai")
 
+# 默认模型在当前生效日（trade_date <= 今天）的最新有效批次。
+# 口径与 manual_execution_service.get_default_model_hosted_status 对齐：
+# 默认模型 + 已完成 + 未走兜底。
+_DEFAULT_MODEL_BATCH_SQL = """
+    SELECT s.run_id
+    FROM engine_signal_scores s
+    JOIN qm_user_models m
+      ON m.tenant_id = s.tenant_id
+     AND m.user_id = s.user_id
+     AND m.is_default = TRUE
+     AND m.status IN ('ready', 'active')
+     AND COALESCE((m.metadata_json->>'system_default')::boolean, FALSE) = FALSE
+    JOIN qm_model_inference_runs r
+      ON r.run_id = s.run_id
+     AND r.tenant_id = s.tenant_id
+     AND r.user_id = s.user_id
+     AND r.model_id = m.model_id
+     AND r.status = 'completed'
+     AND COALESCE(r.fallback_used, FALSE) = FALSE
+    WHERE s.tenant_id = :tenant_id
+      AND s.user_id = :user_id
+      AND s.trade_date <= :today
+    GROUP BY s.run_id, s.trade_date
+    ORDER BY s.trade_date DESC, MAX(r.created_at) DESC
+    LIMIT 1
+"""
+
+# 兜底：无默认模型批次时取当前生效日最近写入的一批。
+_LATEST_BATCH_SQL = """
+    SELECT run_id
+    FROM engine_signal_scores
+    WHERE tenant_id = :tenant_id
+      AND user_id = :user_id
+      AND trade_date <= :today
+    GROUP BY run_id, trade_date
+    ORDER BY trade_date DESC, MAX(created_at) DESC
+    LIMIT 1
+"""
+
 
 @dataclass
 class SignalScore:
@@ -144,6 +183,18 @@ class SignalLoader:
             logger.error("SignalLoader: 加载信号失败 %s", e, exc_info=True)
             return []
 
+    @staticmethod
+    async def _first_row(
+        db: AsyncSession,
+        sql: str,
+        params: dict[str, Any],
+    ) -> Any | None:
+        try:
+            return (await db.execute(text(sql), params)).first()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("SignalLoader: 查询信号批次失败: %s", exc)
+            return None
+
     async def _resolve_effective_batch(
         self,
         db: AsyncSession,
@@ -158,41 +209,20 @@ class SignalLoader:
         ``next_session`` 会跳到下一个交易日，或补跑历史写入远期日期——导致
         模拟盘提前交易，且因它恒为 MAX 而长期霸占后续每一轮。
 
-        同一生效日存在多个模型批次时只取最近写入的一个：不同模型的
-        ``fusion_score`` 量纲与归一化不同，混合后按分数排序取 topk 得到的是
-        跨模型不可比的结果。
+        同一生效日存在多个模型批次时，优先取「默认模型」的那一批：不同模型的
+        ``fusion_score`` 量纲与归一化不同，混合（或按写入时间取到非默认模型）
+        会让 topk 选股变成跨模型不可比的结果，且用户无从察觉。默认模型批次
+        缺失时退化为「最近写入」，保证不比改动前更差。
         """
         today = datetime.now(_SH_TZ).date()
-        try:
-            row = (
-                await db.execute(
-                    text(
-                        """
-                        SELECT run_id
-                        FROM engine_signal_scores
-                        WHERE tenant_id = :tenant_id
-                          AND user_id = :user_id
-                          AND trade_date <= :today
-                        GROUP BY run_id, trade_date
-                        ORDER BY trade_date DESC, MAX(created_at) DESC
-                        LIMIT 1
-                        """
-                    ),
-                    {
-                        "tenant_id": tenant_id,
-                        "user_id": user_id,
-                        "today": today,
-                    },
-                )
-            ).first()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "SignalLoader: 解析生效信号批次失败, tenant=%s user=%s err=%s",
-                tenant_id,
-                user_id,
-                exc,
-            )
-            return None
+        params = {
+            "tenant_id": tenant_id,
+            "user_id": user_id,
+            "today": today,
+        }
+        row = await self._first_row(db, _DEFAULT_MODEL_BATCH_SQL, params)
+        if not row:
+            row = await self._first_row(db, _LATEST_BATCH_SQL, params)
         if row and row[0]:
             return str(row[0])
         logger.warning(

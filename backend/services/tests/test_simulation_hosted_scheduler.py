@@ -226,16 +226,28 @@ class _FakeResult:
 
 
 class _FakeDB:
-    """最小 AsyncSession 替身：只记录 SQL 与参数，供批次解析断言使用。"""
+    """最小 AsyncSession 替身：只记录 SQL 与参数，供批次解析断言使用。
+
+    ``row`` 为 dict 时按 SQL 片段匹配返回不同结果，用于验证「默认模型批次
+    优先、缺失时退化」的两段查询顺序。
+    """
 
     def __init__(self, row):
         self.row = row
         self.sql = ""
         self.params = None
+        self.sqls: list[str] = []
 
     async def execute(self, query, params=None):
-        self.sql = str(query)
+        sql = str(query)
+        self.sql = sql
+        self.sqls.append(sql)
         self.params = params
+        if isinstance(self.row, dict):
+            for marker, value in self.row.items():
+                if marker in sql:
+                    return _FakeResult(value)
+            return _FakeResult(None)
         return _FakeResult(self.row)
 
 
@@ -256,6 +268,37 @@ async def test_resolve_effective_batch_returns_none_when_all_batches_future():
     db = _FakeDB(None)
 
     assert await SignalLoader()._resolve_effective_batch(db, "default", "1") is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_effective_batch_prefers_default_model_batch():
+    """同一生效日多模型并存时，必须取默认模型的批次而非最近写入的那批。"""
+    db = _FakeDB(
+        {
+            "qm_model_inference_runs": ("run_default_model",),
+            "GROUP BY run_id": ("run_written_last",),
+        }
+    )
+
+    got = await SignalLoader()._resolve_effective_batch(db, "default", "1")
+
+    assert got == "run_default_model"
+    assert len(db.sqls) == 1  # 首次查询即命中，不再退化
+
+
+@pytest.mark.asyncio
+async def test_resolve_effective_batch_falls_back_without_default_model_batch():
+    db = _FakeDB(
+        {
+            "qm_model_inference_runs": None,
+            "GROUP BY run_id": ("run_written_last",),
+        }
+    )
+
+    got = await SignalLoader()._resolve_effective_batch(db, "default", "1")
+
+    assert got == "run_written_last"
+    assert len(db.sqls) == 2
 
 
 @pytest.mark.asyncio
