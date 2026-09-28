@@ -19,15 +19,16 @@ const { Text } = Typography;
 
 const JOB_POLL_INTERVAL_MS = 3000;
 
-// 默认勾选：除 1分/5分/Tick/债券ETF/L1+L2合并 外，其余数据集默认勾选（便于开箱即用）。
+// 默认勾选：除 1分/5分/Tick 外，其余数据集默认勾选（便于开箱即用）。
 const EXCLUDED_BY_DEFAULT = new Set([
     'min1_kline',
     'min5_kline',
     'tick_data',
-    'etf_pcf',
-    'convertible_bond',
-    'l1_l2_factors',
 ]);
+
+// 前端隐藏的大类：后端 catalog 仍返回，但面板不展示、也不参与默认勾选/同步。
+// bond_etf = 债券/ETF（category 4）。
+const HIDDEN_GROUP_IDS = new Set(['bond_etf']);
 
 const LAYOUT_LABELS: Record<QuantDBDataset['layout'], { text: string; color: string }> = {
     partition: { text: '按日分区', color: 'blue' },
@@ -69,11 +70,18 @@ export function QuantDBCatalogPanel({ connected, onPreview, refreshSignal = 0, e
         setLoading(true);
         try {
             const resp = await dataPlatformService.getQuantDBCatalog();
-            setGroups(resp.groups ?? []);
-            setDatasets(resp.datasets ?? []);
+            // 过滤掉前端隐藏的大类（如债券/ETF），使它们不展示、不参与勾选
+            const visibleGroups = (resp.groups ?? []).filter(
+                (g) => !HIDDEN_GROUP_IDS.has(g.id),
+            );
+            const visibleDatasets = (resp.datasets ?? []).filter(
+                (d) => !HIDDEN_GROUP_IDS.has(d.group),
+            );
+            setGroups(visibleGroups);
+            setDatasets(visibleDatasets);
             setDataDir(resp.data_dir ?? '');
             if (!hasAppliedDefaultSelection.current) {
-                setSelected((resp.datasets ?? [])
+                setSelected(visibleDatasets
                     .filter((dataset) => !EXCLUDED_BY_DEFAULT.has(dataset.dataset))
                     .map((dataset) => dataset.dataset));
                 hasAppliedDefaultSelection.current = true;

@@ -50,11 +50,14 @@ INDEXES: list[tuple[str, str]] = [
     ("上证50", "000016.SH"),
 ]
 
+# 说明这些数据集为何「本地落后」：它们不在每日自动同步表里，本地分区停滞，
+# 上游仍有数据、可由 QuantDB 同步补齐 —— 并非上游停更。
+_STALE_NOTE = "本地未同步，可由 QuantDB 同步补齐（非上游停更）"
 STALE_NOTES: dict[str, str] = {
-    "l2_factors": "厂商侧停更 2026-02-27，近期无日频资金流明细",
-    "min1_kline": "停更 2026-07-24",
-    "min5_kline": "停更 2026-07-24",
-    "hsgt_north": "北向 2024-08 起改季度披露，只有季度快照",
+    "l2_factors": _STALE_NOTE,
+    "min1_kline": _STALE_NOTE,
+    "min5_kline": _STALE_NOTE,
+    "hsgt_north": _STALE_NOTE,
 }
 
 

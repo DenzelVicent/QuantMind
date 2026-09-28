@@ -9474,7 +9474,7 @@
   "source": "/app/config/features/model_training_feature_catalog_v1.json",
   "metadata": {
     "default_selected_count": 112,
-    "default_selected_note": "前端默认勾选受 default_selected=true 控制。v2.3 口径: 仅勾选 2016-2025 年度 parquet schema 全覆盖且实测非全空的因子(112个)。剔除两类: (1) 31个仅存在于 2026 年 parquet 的 l2/资金流/微观结构因子(上游 l2_factors 仅 34 个交易日分区、min5_kline 仅 5 天, train/valid 区间全为 NaN); (2) 3个全历史 notna=0 的死列 concept_flow_rank / chip_floating_ratio / ind_netflow_rank_20。",
+    "default_selected_note": "前端默认勾选受 default_selected=true 控制。v2.3 口径: 仅勾选 2016-2025 年度 parquet schema 全覆盖且实测非全空的因子(112个)。剔除两类: (1) 31个仅存在于 2026 年 parquet 的 l2/资金流/微观结构因子(l2_factors、min5_kline 由 QuantDB 同步，本地仅分别有 34 个交易日分区 / 5 天, train/valid 区间全为 NaN); (2) 3个全历史 notna=0 的死列 concept_flow_rank / chip_floating_ratio / ind_netflow_rank_20。",
     "default_selected_set_version": "v2.3-full-history112",
     "parquet_schema": "qm_feature_set_v1_20260402",
     "rebuild_date": "2026-08-03",
