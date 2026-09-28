@@ -345,6 +345,9 @@ class SimulationEngine:
                 orders = self._apply_risk_buy_locks(
                     orders, tenant=tenant, user_id=uid, trade_date=datetime.now().date()
                 )
+                orders = self._apply_max_buy_drop_gate(
+                    orders, live_ticks=live_ticks, tenant=tenant, user_id=uid
+                )
                 report.order_count = len(orders)
 
                 if not orders:
@@ -357,25 +360,71 @@ class SimulationEngine:
 
                 # 6. 模拟撮合（ashare_matcher + 当日不复权日 K）
                 exec_engine = SimulationExecutionEngine(db, self.account_manager)
+                failed_orders: list[str] = []
                 for order in orders:
-                    result = await self._execute_order(
-                        db=db,
-                        exec_engine=exec_engine,
-                        order=order,
-                        tenant_id=tenant,
-                        user_id=uid,
-                        strategy_id=strategy_id,
-                        market=market,
-                        run_id=exec_run_id,
-                        live_tick=self._tick_for_symbol(live_ticks, order.symbol),
-                        allow_stale_fill=stale_ok,
-                    )
+                    # 单笔失败不能拖垮整个调仓批次。
+                    # 注意：不要用 begin_nested/SAVEPOINT —— ExecutionEngine 的
+                    # apply_filled/mark_rejected 内部各自 await self.db.commit()，
+                    # 会提前释放 SAVEPOINT 并使回滚失效；已成交单也因此早已独立落库。
+                    # 这里只做异常隔离 + 定向回滚本笔残留即可。
+                    try:
+                        result = await self._execute_order(
+                            db=db,
+                            exec_engine=exec_engine,
+                            order=order,
+                            tenant_id=tenant,
+                            user_id=uid,
+                            strategy_id=strategy_id,
+                            market=market,
+                            run_id=exec_run_id,
+                            live_tick=self._tick_for_symbol(
+                                live_ticks, order.symbol
+                            ),
+                            allow_stale_fill=stale_ok,
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        failed_orders.append(str(order.symbol))
+                        logger.exception(
+                            "SimulationEngine: 单笔执行异常已隔离 "
+                            "tenant=%s user=%s run=%s symbol=%s side=%s err=%s",
+                            tenant,
+                            uid,
+                            exec_run_id,
+                            order.symbol,
+                            order.side,
+                            exc,
+                        )
+                        try:
+                            await db.rollback()
+                        except Exception:  # noqa: BLE001
+                            logger.warning(
+                                "SimulationEngine: 异常后回滚失败, "
+                                "tenant=%s user=%s symbol=%s",
+                                tenant,
+                                uid,
+                                order.symbol,
+                            )
+                        result = ExecutionResult(
+                            success=False,
+                            message=f"order_failed: {exc}"[:500],
+                        )
                     report.orders.append(self._order_to_dict(order, result))
                     if result.success:
                         report.filled_count += 1
                         report.total_commission += result.commission
                     else:
                         report.rejected_count += 1
+
+                if failed_orders:
+                    logger.warning(
+                        "SimulationEngine: 本轮 %d/%d 笔异常中止 %s",
+                        len(failed_orders),
+                        len(orders),
+                        ",".join(failed_orders[:20]),
+                    )
+                    report.error = report.error or (
+                        f"{len(failed_orders)} 笔订单执行异常已隔离"
+                    )
 
                 await db.commit()
 
@@ -654,6 +703,128 @@ class SimulationEngine:
             logger.warning("SimulationEngine: 读取风控禁买锁失败: %s", exc)
             return orders
 
+    def _load_execution_risk_config(
+        self, tenant: str, user_id: str
+    ) -> dict[str, Any]:
+        """
+        读取用户在活跃策略里保存的执行风控参数（execution_config）。
+
+        与实盘链路同源：Redis 的 active_strategy payload，
+        sandbox_signal_consumer / risk_trigger_scanner 均从此处读取。
+        读不到时返回空 dict，由调用方走默认阈值。
+        """
+        try:
+            from backend.shared.simulation_account_keys import (
+                active_strategy_lookup_keys,
+            )
+
+            client = getattr(self.redis, "client", None)
+            if client is None:
+                return {}
+            raw = None
+            for key in active_strategy_lookup_keys(tenant, user_id):
+                raw = client.get(key)
+                if raw:
+                    break
+            if not raw:
+                return {}
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8")
+            data = json.loads(raw)
+            cfg = (data or {}).get("execution_config") or {}
+            return cfg if isinstance(cfg, dict) else {}
+        except Exception as exc:
+            logger.warning(
+                "SimulationEngine: 读取 execution_config 失败, 跳过执行风控: %s",
+                exc,
+            )
+            return {}
+
+    @staticmethod
+    def _intraday_pct_change(tick: dict[str, Any] | None) -> float | None:
+        """
+        估算当日涨跌幅，返回小数（如 -0.10 表示 -10%）。
+
+        Redis series tick 只带当日 open，不带昨收，因此这里用
+        (现价 - 今开) / 今开 作为日内跌幅口径。与 qlib runner 的
+        pct_chg（相对昨收）存在口径差异，但趋势方向一致；
+        拿到昨收后应改为相对昨收计算。
+        """
+        if not tick:
+            return None
+        try:
+            price = float(tick.get("price") or 0)
+            open_price = float(tick.get("open") or 0)
+        except (TypeError, ValueError):
+            return None
+        if price <= 0 or open_price <= 0:
+            return None
+        return (price - open_price) / open_price
+
+    def _apply_max_buy_drop_gate(
+        self,
+        orders: list[Order],
+        *,
+        live_ticks: dict[str, dict[str, Any]],
+        tenant: str,
+        user_id: str,
+    ) -> list[Order]:
+        """
+        大跌拦截（execution_config.max_buy_drop）。
+
+        语义对齐实盘 RiskGate：买单当日跌幅 <= max_buy_drop 时直接丢弃，
+        卖单不受影响；无行情可判定的放行不误杀。
+        缺省 -0.03 与 services/trade/runner/risk_gate.py 保持一致。
+        """
+        cfg = self._load_execution_risk_config(tenant, user_id)
+        try:
+            threshold = float(cfg.get("max_buy_drop"))
+        except (TypeError, ValueError):
+            threshold = -0.03
+        if not (-0.10 <= threshold <= -0.01):
+            logger.warning(
+                "SimulationEngine: max_buy_drop=%s 超出范围[-0.10, -0.01], "
+                "回退默认 -0.03 tenant=%s user=%s",
+                cfg.get("max_buy_drop"),
+                tenant,
+                user_id,
+            )
+            threshold = -0.03
+
+        kept: list[Order] = []
+        dropped: list[str] = []
+        no_quote = 0
+        for order in orders:
+            if str(order.side).upper() != "BUY":
+                kept.append(order)
+                continue
+            pct = self._intraday_pct_change(
+                self._tick_for_symbol(live_ticks, order.symbol)
+            )
+            if pct is None:
+                no_quote += 1
+                kept.append(order)
+                continue
+            if pct <= threshold:
+                dropped.append(f"{order.symbol}={pct * 100:.2f}%")
+                continue
+            kept.append(order)
+
+        if dropped or no_quote:
+            logger.info(
+                "[Risk] 模拟盘大跌拦截 tenant=%s user=%s threshold=%.2f%% "
+                "orders=%d kept=%d dropped=%d no_quote=%d dropped_list=%s",
+                tenant,
+                user_id,
+                threshold * 100,
+                len(orders),
+                len(kept),
+                len(dropped),
+                no_quote,
+                ",".join(dropped[:20]),
+            )
+        return kept
+
     async def _execute_order(
         self,
         db: AsyncSession,
@@ -721,6 +892,9 @@ class SimulationEngine:
         )
         await db.flush()
 
+        # allow_stale_fill 分支下不会走 assess_execution_window，此处先置 None，
+        # 避免下游部分成交排队时引用未初始化变量（历史 UnboundLocalError）。
+        session_decision = None
         if not allow_stale_fill:
             session_decision = await exec_engine.assess_execution_window(sim_order)
             if not session_decision.can_execute:
@@ -752,7 +926,11 @@ class SimulationEngine:
                 await SimOrderService(db).queue_order(
                     sim_order,
                     "partially_filled; remainder queued for current DAY session",
-                    trading_session_date=session_decision.target_trade_date,
+                    trading_session_date=(
+                        session_decision.target_trade_date
+                        if session_decision is not None
+                        else None
+                    ),
                 )
             # 双轨镜像：虚拟成交已生效，按开关/白名单/限额向大 QMT 补一笔真单。
             # 用独立会话（db=None），避免真单写入提前提交本周期未完成的虚拟账本；
