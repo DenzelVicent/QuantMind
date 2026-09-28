@@ -378,22 +378,34 @@ class RebalanceCalculator:
         if strategy.weight_mode == WeightMode.CUSTOM and strategy.custom_weights:
             return strategy.custom_weights
 
-        if strategy.weight_mode == WeightMode.EQUAL:
-            weight = 1.0 / len(signals)
-            return {sig.symbol: weight for sig in signals}
-
         if strategy.weight_mode == WeightMode.SCORE_WEIGHTED:
             total_score = sum(sig.score for sig in signals)
-            if total_score <= 0:
-                weight = 1.0 / len(signals)
-                return {sig.symbol: weight for sig in signals}
-            return {
-                sig.symbol: sig.score / total_score
-                for sig in signals
-            }
+            if total_score > 0:
+                return {
+                    sig.symbol: sig.score / total_score
+                    for sig in signals
+                }
+            # 分数全为非正：退化为等权（与下方分支一致）
 
-        # 默认等权
-        weight = 1.0 / len(signals)
+        # 等权（含默认分支）：分母取 topk 与实际选中数的较大者。
+        #
+        # 原实现恒为 1/len(signals)，会把「可交易标的不足」直接放大成单票目标：
+        # topk=50 而只有 2 只未超龄时每只目标飙到 50%，再被 max_position_pct
+        # 削到 15%，两只就吃掉 30% 仓位——而这 2 只只是「恰好行情没超龄」，
+        # 并非信号最强。以 topk 为分母则样本不足时自然留出现金，
+        # 与回测 topk 等权口径（恒 1/topk）一致。
+        n = len(signals)
+        basis = max(int(strategy.topk or 0), n, 1)
+        if n < basis:
+            logger.info(
+                "RebalanceCalculator: 可交易 %d 只 < topk=%d，等权按 1/%d 配权"
+                "（总目标仓位 %.1f%%，不足部分留现金）",
+                n,
+                basis,
+                basis,
+                100.0 * n / basis,
+            )
+        weight = 1.0 / basis
         return {sig.symbol: weight for sig in signals}
 
     def _calc_target_positions(

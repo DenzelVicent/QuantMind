@@ -98,14 +98,35 @@ def hosted_cycle_ready(phase: str) -> bool:
 
 
 def report_to_hosted_result(report: Any) -> dict[str, Any]:
+    error = getattr(report, "error", None)
+    ordered = int(getattr(report, "order_count", 0) or 0)
+    filled = int(getattr(report, "filled_count", 0) or 0)
+    rejected = int(getattr(report, "rejected_count", 0) or 0)
+
+    status = "failed" if error else "succeeded"
+    if not error and ordered > 0 and filled == 0:
+        # 下了单却一笔都没成交，不能报 succeeded：
+        # 一是会推送「模拟策略已启动」的成功通知掩盖空转；
+        # 二是下游（real_trading_lifecycle）只在 failed 时释放 bootstrap 锁，
+        # 假成功会让 24h 去重配额被一次空转白白占用。
+        # ordered == 0（确实无需调仓）仍算 succeeded。
+        status = "failed"
+        error = f"no_fill: orders={ordered} rejected={rejected}"
+        logger.warning(
+            "simulation hosted: 本轮无任何成交 orders=%d rejected=%d run=%s",
+            ordered,
+            rejected,
+            getattr(report, "run_id", None),
+        )
+
     return {
         "task_id": getattr(report, "run_id", None),
-        "status": "failed" if getattr(report, "error", None) else "succeeded",
-        "error": getattr(report, "error", None),
+        "status": status,
+        "error": error,
         "signal_count": getattr(report, "signal_count", 0),
-        "order_count": getattr(report, "order_count", 0),
-        "filled_count": getattr(report, "filled_count", 0),
-        "rejected_count": getattr(report, "rejected_count", 0),
+        "order_count": ordered,
+        "filled_count": filled,
+        "rejected_count": rejected,
     }
 
 
@@ -198,6 +219,7 @@ async def run_simulation_cycle_for_active(
         params_override=params_override or None,
         pool_id=cfg.get("pool_id"),
         signal_run_id=signal_run_id,
+        max_orders=int(cfg.get("max_orders_per_cycle") or 0) or None,
     )
     return report_to_hosted_result(report)
 

@@ -250,43 +250,60 @@ class SimulationScheduler:
 
         return accounts
 
-    def _resolve_pool_ref(self, account: ActiveSimulationAccount) -> str | None:
-        """从运行时 active_strategy 配置取全局股票池引用（P3 接线）。
+    def _live_trade_config(self, account: ActiveSimulationAccount) -> dict:
+        """读取运行时 active_strategy 的 live_trade_config（与托管链路同一事实源）。
 
-        与 hosted scheduler / 手动托管同一事实源：前端「模拟盘托管」保存的
-        live_trade_config.pool_id 存在 trade:active_strategy:{tenant}:{user}。
-        此前 SimulationScheduler 每日调仓从不读它，导致配置的池只对托管链路
-        生效、对本调度器静默失效（按全市场信号调仓）。
+        前端「模拟盘托管」保存的配置存在 trade:active_strategy:{tenant}:{user}。
+        此前 SimulationScheduler 每日调仓几乎不读它，导致配置只对托管链路生效、
+        对本调度器静默失效。
         """
         try:
             if not self.redis.client:
-                return None
+                return {}
             from backend.shared.simulation_account_keys import active_strategy_key
 
             raw = self.redis.client.get(
                 active_strategy_key(account.tenant_id, account.user_id)
             )
             if not raw:
-                return None
+                return {}
             data = json.loads(raw)
             if not isinstance(data, dict):
-                return None
+                return {}
             if str(data.get("strategy_id") or "").strip() != str(account.strategy_id):
-                return None
+                return {}
             cfg = data.get("live_trade_config")
             if isinstance(cfg, str):
                 cfg = json.loads(cfg)
-            if not isinstance(cfg, dict):
-                return None
-            return str(cfg.get("pool_id") or "").strip() or None
+            return cfg if isinstance(cfg, dict) else {}
         except Exception as e:
             logger.debug(
-                "SimulationScheduler: 解析账户池配置失败 tenant=%s user=%s: %s",
+                "SimulationScheduler: 解析账户托管配置失败 tenant=%s user=%s: %s",
                 account.tenant_id,
                 account.user_id,
                 e,
             )
+            return {}
+
+    def _resolve_pool_ref(self, account: ActiveSimulationAccount) -> str | None:
+        """从运行时 active_strategy 配置取全局股票池引用（P3 接线）。
+
+        与 hosted scheduler / 手动托管同一事实源；此前本调度器从不读它，
+        配置的池只对托管链路生效、本调度器静默按全市场信号调仓。
+        """
+        return str(self._live_trade_config(account).get("pool_id") or "").strip() or None
+
+    def _resolve_max_orders(self, account: ActiveSimulationAccount) -> int | None:
+        """从运行时 active_strategy 配置取单轮订单上限。
+
+        max_orders_per_cycle 在模拟盘此前只被归一化、无任何消费点：用户设 20，
+        实际仍按 topk 下满 50 单。本调度器与托管链路共用同一口径。
+        """
+        try:
+            value = int(self._live_trade_config(account).get("max_orders_per_cycle") or 0)
+        except (TypeError, ValueError):
             return None
+        return value if value > 0 else None
 
     async def _run_single_account(self, account: ActiveSimulationAccount) -> bool:
         """执行单个账户的调仓"""
@@ -296,6 +313,7 @@ class SimulationScheduler:
                 user_id=account.user_id,
                 strategy_id=account.strategy_id,
                 pool_id=self._resolve_pool_ref(account),
+                max_orders=self._resolve_max_orders(account),
             )
             return report.error is None
         except Exception as e:

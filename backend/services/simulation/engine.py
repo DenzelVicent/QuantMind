@@ -162,6 +162,7 @@ class SimulationEngine:
         pool_id: str | None = None,
         signal_run_id: str | None = None,
         allow_stale_quotes: bool | None = None,
+        max_orders: int | None = None,
     ) -> ExecutionReport:
         """
         执行一次模拟盘调仓周期。
@@ -175,6 +176,8 @@ class SimulationEngine:
             params_override: 前端传递的策略参数覆盖
             allow_stale_quotes: 允许用本地日线兜底（bootstrap 盘后建仓）；
                 None 时若 run_id 以 bootstrap_ 开头则自动开启
+            max_orders: 单轮订单数上限（对应 live_trade_config.max_orders_per_cycle）。
+                卖单（减仓/风控）优先且不占额度，买入超出部分被丢弃。
 
         Returns:
             执行报告
@@ -312,19 +315,33 @@ class SimulationEngine:
                 ]
                 symbols = list(dict.fromkeys([s.symbol for s in signals] + position_symbols))
                 quotes, live_ticks = await self._load_live_quotes(symbols)
-                if not live_ticks and stale_ok:
-                    # Bootstrap / 盘后：实时序列为空时用本地日线收盘价建仓，避免启动即 failed filled=0
-                    bars = await self._load_bars(symbols, market=market)
-                    quotes = self._quotes_from_bars(bars)
-                    live_ticks = self._ticks_from_bars(bars)
-                    logger.warning(
-                        "SimulationEngine: realtime empty, stale local bars used "
-                        "tenant=%s user=%s bars=%d (bootstrap/stale allowed)",
-                        tenant,
-                        uid,
-                        len(bars),
-                    )
-                if not live_ticks:
+                if stale_ok and len(live_ticks) < len(symbols):
+                    # Bootstrap / 盘后：实时行情停更后往往只剩零星几只新鲜
+                    # （实测 2/2827）。原实现只在「实时全空」时才用本地日线兜底，
+                    # 部分覆盖时行情字典里就只有那几只，而选股阶段 _is_tradable
+                    # 只认 quotes 里存在的标的——于是「盘后允许用陈旧价格建仓」
+                    # 这个意图在选股阶段就被卡死，可交易标的被压到个位数。
+                    # 改为按缺失标的补齐本地日线，实时行情优先不被覆盖。
+                    missing = [s for s in symbols if s not in quotes]
+                    if missing:
+                        bars = await self._load_bars(missing, market=market)
+                        bar_quotes = self._quotes_from_bars(bars)
+                        bar_ticks = self._ticks_from_bars(bars)
+                        if bar_quotes:
+                            quotes = {**bar_quotes, **quotes}
+                            for key, value in bar_ticks.items():
+                                live_ticks.setdefault(key, value)
+                            logger.warning(
+                                "SimulationEngine: realtime partial, stale local "
+                                "bars 补齐 tenant=%s user=%s symbols=%d "
+                                "realtime=%d bars=%d (bootstrap/stale allowed)",
+                                tenant,
+                                uid,
+                                len(symbols),
+                                len(live_ticks),
+                                len(bar_quotes),
+                            )
+                if not quotes:
                     report.error = "realtime_quote_unavailable"
                     logger.error(
                         "SimulationEngine: no fresh realtime quote; cycle rejected "
@@ -348,6 +365,8 @@ class SimulationEngine:
                 orders = self._apply_max_buy_drop_gate(
                     orders, live_ticks=live_ticks, tenant=tenant, user_id=uid
                 )
+                if max_orders is not None and int(max_orders) > 0:
+                    orders = self._truncate_orders(orders, int(max_orders))
                 report.order_count = len(orders)
 
                 if not orders:
@@ -824,6 +843,31 @@ class SimulationEngine:
                 ",".join(dropped[:20]),
             )
         return kept
+
+    @staticmethod
+    def _truncate_orders(orders: list[Order], max_orders: int) -> list[Order]:
+        """按单轮上限截断订单：卖单（减仓/风控）优先保留且不占额度。
+
+        ``max_orders_per_cycle`` 此前在模拟盘只被归一化、从无消费点，
+        用户设 20 实际仍下 50 单。买入侧按生成顺序（分数降序）截断；
+        卖单即使超出上限也全部保留——截断减仓单会让风险敞口关不掉。
+        """
+        if max_orders <= 0 or len(orders) <= max_orders:
+            return orders
+        sells = [o for o in orders if str(getattr(o, "side", "")).upper() == "SELL"]
+        buys = [o for o in orders if str(getattr(o, "side", "")).upper() != "SELL"]
+        room = max_orders - len(sells)
+        kept_buys = buys[:room] if room > 0 else []
+        if kept_buys or room <= 0:
+            logger.info(
+                "SimulationEngine: 单轮订单数超限，截断 max=%d "
+                "sell=%d buy=%d → keep_buy=%d",
+                max_orders,
+                len(sells),
+                len(buys),
+                len(kept_buys),
+            )
+        return sells + kept_buys
 
     async def _execute_order(
         self,

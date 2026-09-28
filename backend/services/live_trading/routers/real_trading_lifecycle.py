@@ -614,9 +614,24 @@ async def stop_trading(
 
         # Clear active strategy in Redis（含管理员历史别名）
         _delete_active_strategy_aliases(redis, resolved_tenant_id, resolved_user_id)
-        # 清理 24h bootstrap 锁，避免同策略 24h 内重启被误挡
+        # 24h bootstrap 锁默认**保留**。
+        # 该锁的语义是「同一策略 24h 内只 bootstrap 一次」的去重护栏，而停止策略
+        # 并不等于重置账户——删锁后用户只要「停止→启动」就能无限次触发完整调仓，
+        # 直接绕过 rebalance_days 等调仓周期约束（实测同一天连续触发 3 轮建仓，
+        # 仅因盘后行情陈旧才未重复成交）。确需「停止后允许重新建仓」时，
+        # 用 SIM_BOOTSTRAP_UNLOCK_ON_STOP=true 显式开启。
+        if (
+            os.getenv("SIM_BOOTSTRAP_UNLOCK_ON_STOP", "false").strip().lower()
+            == "true"
+        ):
+            try:
+                redis.delete_pattern(
+                    f"qm:hosted:simulation:bootstrap:"
+                    f"{resolved_tenant_id}:{resolved_user_id}:*"
+                )
+            except Exception:
+                pass
         for pat in (
-            f"qm:hosted:simulation:bootstrap:{resolved_tenant_id}:{resolved_user_id}:*",
             f"qm:hosted:simulation:{resolved_tenant_id}:{resolved_user_id}:*",
         ):
             try:
