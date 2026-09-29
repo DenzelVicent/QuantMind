@@ -86,6 +86,7 @@ export interface InferenceRunRecord {
   effective_model_id?: string;
   model_source?: string;
   active_data_source?: string;
+  pool_id?: string | null;
   stdout?: string;
   stderr?: string;
   error_message?: string;
@@ -799,6 +800,7 @@ class ModelTrainingService {
       effective_model_id: raw?.effective_model_id ? String(raw.effective_model_id) : undefined,
       model_source: raw?.model_source ? String(raw.model_source) : undefined,
       active_data_source: raw?.active_data_source ? String(raw.active_data_source) : undefined,
+      pool_id: raw?.pool_id ? String(raw.pool_id) : (raw?.request_json as any)?.pool_id ? String((raw.request_json as any).pool_id) : ((raw?.result_json as any)?.pool_id ? String((raw.result_json as any).pool_id) : null),
       stdout: raw?.stdout ? String(raw.stdout) : undefined,
       stderr: raw?.stderr ? String(raw.stderr) : undefined,
       error_message: raw?.error_message ? String(raw.error_message) : undefined,
@@ -845,6 +847,7 @@ class ModelTrainingService {
       runId?: string;
       status?: string;
       inferenceDate?: string;
+      poolId?: string;
       page?: number;
       pageSize?: number;
     },
@@ -857,6 +860,7 @@ class ModelTrainingService {
           run_id: options?.runId,
           status: options?.status,
           inference_date: options?.inferenceDate,
+          pool_id: options?.poolId,
           page: options?.page ?? 1,
           page_size: options?.pageSize ?? 20,
         },

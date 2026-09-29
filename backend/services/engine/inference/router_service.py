@@ -580,15 +580,18 @@ class InferenceRouterService:
 
         # 两套推理数据一致性：用户模型全市场推理成功后，把真实分数回写
         # 该模型目录的 pred.parquet（coverage 缺口判定与个股分数曲线的
-        # 数据源）。单股推理（symbols 非空，仅个别标的）与兜底结果
-        # 不回写，避免残缺日期污染历史分数序列；persist=False（个股独立
-        # 轻路线）同样不回写，结果只在前端缓存。
+        # 数据源）。单股推理（symbols 非空，仅个别标的）、股票池推理
+        # （pool_id 非空，仅池内截面）与兜底结果不回写，避免残缺日期
+        # 污染历史分数序列；persist=False（个股独立轻路线）同样不回写，
+        # 结果只在前端缓存。
+        _pool_scoped = bool(str(pool_id or "").strip())
         if (
             result.success
             and persist
             and not result.fallback_used
             and explicit_storage_dir
             and symbols is None
+            and not _pool_scoped
             and getattr(result, "signals", None)
         ):
             try:

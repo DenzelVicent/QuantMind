@@ -1186,8 +1186,7 @@ class InferenceScriptRunner:
         # 单股补推：非空 symbols 时仅保留目标股票，后续落库/返回只针对这些股票。
         # 推理脚本仍对全池出分（不改子进程与模板），只裁剪写库与返回，
         # 从而 predict-stock 能立即读到该股的真实分数，又不破坏全市场批量路径。
-        # partial_applied=True 时落库走按 symbol 缩小删除范围的局部覆盖，
-        # 避免单股补推把当日全市场信号桶整桶删成 1 条。
+        # partial_applied=True 时跳过 feature_runs 写入（各 run 独立并存，互不删除）。
         partial_applied = False
         if symbols:
             target_norm = set()
@@ -1224,10 +1223,9 @@ class InferenceScriptRunner:
             f"[InferenceScriptRunner] 解析到 {len(signals)} 条信号, run_id={run_id}"
         )
 
-        # 写库 + 发布 Redis Stream（partial=单股补推/股票池时局部覆盖，不整桶删除）。
+        # 写库 + 发布 Redis Stream（partial 仅决定 feature_runs 是否写入；
+        # 各 run 互不删除，读侧按 run_id 取数）。
         # persist=False（个股独立路线）时跳过，只返回内存信号。
-        # 股票池推理必须局部覆盖：整桶删除会把同日全市场 run 的信号清空，
-        # 导致推理历史的分布统计查不到明细（09-11 全市场 5189 行被池 run 清空事故）。
         pool_scoped = bool(pool_id)
         if persist:
             self._persist_and_publish(
@@ -1503,8 +1501,8 @@ class InferenceScriptRunner:
         """
         将推理结果写入 engine_signal_scores 并发布到 Redis Stream。
 
-        存储策略：按模型桶覆盖（同 tenant/user/date/model），保证同日不同模型可并存。
-        partial=True（单股补推/股票池）时只覆盖目标 symbol 的行，不整桶删除当日全市场信号。
+        存储策略：各 run 独立并存（unique 键含 run_id），同日同桶多 run 互不删除。
+        partial=True（单股补推/股票池）时跳过 feature_runs 写入（不污染全市场就绪标记）。
 
         Args:
             data_trade_date: 推理日期（数据截止日期），若不传则默认等于 prediction_trade_date
@@ -1760,15 +1758,18 @@ class InferenceScriptRunner:
             },
         )
 
-        # ── Step 0.2: 删除当日旧推理结果（覆盖策略）───────────────────
-        # partial（单股补推/股票池）时只删目标 symbol 的旧行，保留当日全市场信号。
-        # 注意：unique 键含 run_id，新 run 会另插一行，同 symbol 当日可能并存多行，
-        # 读侧按最新 created_at 取最新（与个股分数曲线口径一致）。
+        # ── Step 0.2: 幂等清理（仅本 run_id，不碰其它 run）───────────────
+        # 历史逻辑按 (date, bucket[, symbols]) 跨 run 删除，导致池/单股 partial
+        # run 把同日全市场旧 run 的同 symbol 行删掉（旧 run 的 signals_count
+        # 仍是 5000 快照，明细却只剩 4000），全量重跑也会清空同日其它 run。
+        # 读侧一律按 run_id 取数（详情/批量/选股均已是 run_id 口径），无需破坏式
+        # “最新截面”覆盖。这里只清本 run_id 的残留（重试幂等），其它 run 原样保留。
         _sym_filter = " AND symbol = ANY(:partial_symbols)" if partial else ""
         db.execute(
             text(f"""
                 DELETE FROM engine_signal_scores
-                WHERE trade_date    = :trade_date
+                WHERE run_id      = :run_id
+                  AND trade_date    = :trade_date
                   AND tenant_id    = :tenant_id
                   AND user_id      = :user_id
                   AND model_version = 'inference_script'
@@ -1776,6 +1777,7 @@ class InferenceScriptRunner:
                   {_sym_filter}
             """),
             {
+                "run_id": run_id,
                 "trade_date": prediction_trade_date,
                 "tenant_id": tenant_id,
                 "user_id": user_id,
@@ -1785,20 +1787,22 @@ class InferenceScriptRunner:
         )
         if partial:
             logger.info(
-                f"[InferenceScriptRunner] 局部覆盖: 仅替换 {len(symbols)} 只标的的旧信号(单股补推/股票池), run_id={run_id}"
+                f"[InferenceScriptRunner] 幂等清理: 本 run {len(symbols)} 只标的残留(单股补推/股票池), run_id={run_id}"
             )
         else:
-            # 同步清除旧 feature_runs 记录（保留最新 run_id）
+            # 同步清理本 run 的旧 feature_runs 记录（其它 run 保留）
             db.execute(
                 text("""
                     DELETE FROM engine_feature_runs
-                    WHERE trade_date = :trade_date
+                    WHERE run_id = :run_id
+                      AND trade_date = :trade_date
                       AND tenant_id  = :tenant_id
                       AND user_id    = :user_id
                       AND source     = 'inference_script'
                       AND feature_version = :feature_version
                 """),
                 {
+                    "run_id": run_id,
                     "trade_date": prediction_trade_date,
                     "tenant_id": tenant_id,
                     "user_id": user_id,
@@ -1806,7 +1810,7 @@ class InferenceScriptRunner:
                 },
             )
         logger.info(
-            f"[InferenceScriptRunner] 已清除 {prediction_trade_date} 旧推理数据(模型桶={feature_version}, partial={partial}), run_id={run_id}"
+            f"[InferenceScriptRunner] 幂等清理完成(仅本run, partial={partial}), run_id={run_id}"
         )
 
         # ── Step 1: 写入本次 feature run 记录（单股补推不覆盖全市场 feature_runs）─

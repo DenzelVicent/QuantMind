@@ -186,6 +186,16 @@ export const InferenceHistoryPanel: React.FC<Props> = ({ modelId, onDelete }) =>
       ),
     },
     {
+      title: '范围',
+      align: 'center',
+      width: 110,
+      render: (_: unknown, r: InferenceRunRecord) => (
+        r.pool_id
+          ? <Tag color="blue" className="m-0 border-0 text-[11px] font-bold px-2 rounded-md" title={r.pool_id}>{String(r.pool_id).replace(/^pool:/, '')}</Tag>
+          : <Text className="text-xs text-slate-400">全市场</Text>
+      ),
+    },
+    {
       title: '状态',
       dataIndex: 'status',
       align: 'center',

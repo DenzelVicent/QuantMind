@@ -1915,6 +1915,7 @@ def _build_inference_request_payload(
     data_trade_date: str,
     precheck: dict[str, Any],
     batch_id: str | None,
+    pool_id: str | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "model_id": requested_model_id,
@@ -1923,6 +1924,9 @@ def _build_inference_request_payload(
     }
     if batch_id:
         payload["batch_id"] = batch_id
+    normalized_pool = str(pool_id or "").strip()
+    if normalized_pool:
+        payload["pool_id"] = normalized_pool
     return payload
 
 
@@ -1948,6 +1952,7 @@ async def _execute_single_day_inference(
     仅返回内存结果；成功时 payload 附带 signals 供调用方直接使用。
     个股独立轻路线用此模式，结果只在前端缓存。
     """
+    normalized_pool_id = str(pool_id or "").strip() or ""
     model_calendar = _get_model_calendar(model_dir)
     requested_inference_date = requested_date
     resolved_data_trade_date, calendar_adjusted = await _resolve_trade_date_for_owner(
@@ -2045,6 +2050,7 @@ async def _execute_single_day_inference(
             "stdout": "",
             "stderr": "",
             "precheck": precheck,
+            "pool_id": normalized_pool_id or None,
         }
         if persist:
             await model_inference_persistence.create_run(
@@ -2056,9 +2062,11 @@ async def _execute_single_day_inference(
                 prediction_trade_date=date.fromisoformat(prediction_trade_date),
                 status="failed",
                 request_payload=_build_inference_request_payload(
-                    requested_model_id, data_trade_date, precheck, batch_id
+                    requested_model_id, data_trade_date, precheck, batch_id,
+                    normalized_pool_id or None,
                 ),
                 created_at=run_created_at,
+                pool_id=normalized_pool_id or None,
             )
             await model_inference_persistence.update_run(
                 run_id=provisional_run_id,
@@ -2129,6 +2137,7 @@ async def _execute_single_day_inference(
             "stdout": "",
             "stderr": "",
             "precheck": precheck,
+            "pool_id": normalized_pool_id or None,
         }
         if persist:
             await model_inference_persistence.create_run(
@@ -2140,9 +2149,11 @@ async def _execute_single_day_inference(
                 prediction_trade_date=date.fromisoformat(prediction_trade_date),
                 status="failed",
                 request_payload=_build_inference_request_payload(
-                    requested_model_id, data_trade_date, precheck, batch_id
+                    requested_model_id, data_trade_date, precheck, batch_id,
+                    normalized_pool_id or None,
                 ),
                 created_at=inference_started_at,
+                pool_id=normalized_pool_id or None,
             )
             await model_inference_persistence.update_run(
                 run_id=provisional_run_id,
@@ -2206,6 +2217,7 @@ async def _execute_single_day_inference(
         "stdout": stdout,
         "stderr": stderr,
         "precheck": precheck,
+        "pool_id": normalized_pool_id or None,
     }
     # persist=False 时把内存信号附在 payload 供调用方直接使用（不落库，
     # 调用方自行从 signals 取分，不再读信号表）。
@@ -2225,9 +2237,11 @@ async def _execute_single_day_inference(
             prediction_trade_date=date.fromisoformat(prediction_trade_date),
             status="completed" if result.success else "failed",
             request_payload=_build_inference_request_payload(
-                requested_model_id, data_trade_date, precheck, batch_id
+                requested_model_id, data_trade_date, precheck, batch_id,
+                normalized_pool_id or None,
             ),
             created_at=inference_started_at,
+            pool_id=normalized_pool_id or None,
         )
         await model_inference_persistence.update_run(
             run_id=run_id,
@@ -2652,6 +2666,7 @@ async def list_model_inference_runs(
     run_id: str | None = Query(None, description="批次ID，可选"),
     status: str | None = Query(None, description="状态，可选"),
     inference_date: date | None = Query(None, description="推理基准日期，可选"),
+    pool_id: str | None = Query(None, description="股票池范围，可选；pool:csi1000 / 空=全部"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
     current_user: dict[str, Any] = Depends(get_current_user),
@@ -2664,6 +2679,7 @@ async def list_model_inference_runs(
         run_id=run_id,
         status=status,
         inference_date=inference_date,
+        pool_id=pool_id,
         page=page,
         page_size=page_size,
     )

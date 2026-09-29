@@ -40,11 +40,20 @@ class ModelInferencePersistence:
               effective_model_id TEXT,
               model_source TEXT,
               active_data_source TEXT,
+              pool_id TEXT NOT NULL DEFAULT '',
               request_json JSONB,
               result_json JSONB,
               created_at TIMESTAMPTZ NOT NULL,
               updated_at TIMESTAMPTZ NOT NULL
             );
+            """,
+            """
+            ALTER TABLE qm_model_inference_runs
+              ADD COLUMN IF NOT EXISTS pool_id TEXT NOT NULL DEFAULT '';
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_qm_model_inference_runs_pool
+              ON qm_model_inference_runs (tenant_id, user_id, model_id, pool_id, data_trade_date DESC);
             """,
             """
             CREATE INDEX IF NOT EXISTS idx_qm_model_inference_runs_owner_created
@@ -138,6 +147,20 @@ class ModelInferencePersistence:
                 result[key] = str(result[key])
         result["request_json"] = ModelInferencePersistence._parse_json_field(result.get("request_json"))
         result["result_json"] = ModelInferencePersistence._parse_json_field(result.get("result_json"))
+        # pool_id 物理列为空时归一为 None；兼容仅 JSON 存量的旧行
+        pool_id = str(result.get("pool_id") or "").strip() or None
+        if not pool_id:
+            try:
+                req = result.get("request_json")
+                if isinstance(req, dict):
+                    pool_id = str(req.get("pool_id") or "").strip() or None
+                if not pool_id:
+                    res = result.get("result_json")
+                    if isinstance(res, dict):
+                        pool_id = str(res.get("pool_id") or "").strip() or None
+            except Exception:
+                pool_id = None
+        result["pool_id"] = pool_id
         return result
 
     @staticmethod
@@ -171,7 +194,12 @@ class ModelInferencePersistence:
         status: str,
         request_payload: dict[str, Any],
         created_at: datetime,
+        pool_id: str | None = None,
     ) -> None:
+        # pool_id 物理列与 JSON 双写：新行以显式参数为准，缺省时从 request_payload 回填
+        resolved_pool_id = str(pool_id or "").strip()
+        if not resolved_pool_id and isinstance(request_payload, dict):
+            resolved_pool_id = str(request_payload.get("pool_id") or "").strip()
         async with get_session() as session:
             await session.execute(
                 text(
@@ -181,12 +209,14 @@ class ModelInferencePersistence:
                       status, signals_count, duration_ms, fallback_used, fallback_reason,
                       failure_stage, error_message, stdout, stderr,
                       active_model_id, effective_model_id, model_source, active_data_source,
+                      pool_id,
                       request_json, result_json, created_at, updated_at
                     ) VALUES (
                       :run_id, :tenant_id, :user_id, :model_id, :data_trade_date, :prediction_trade_date,
                       :status, 0, NULL, FALSE, NULL,
                       NULL, NULL, NULL, NULL,
                       NULL, NULL, NULL, NULL,
+                      :pool_id,
                       CAST(:request_json AS JSONB), NULL, :created_at, :created_at
                     )
                     ON CONFLICT (run_id) DO UPDATE SET
@@ -196,6 +226,7 @@ class ModelInferencePersistence:
                       data_trade_date = EXCLUDED.data_trade_date,
                       prediction_trade_date = EXCLUDED.prediction_trade_date,
                       status = EXCLUDED.status,
+                      pool_id = EXCLUDED.pool_id,
                       request_json = EXCLUDED.request_json,
                       updated_at = EXCLUDED.updated_at
                     """
@@ -208,6 +239,7 @@ class ModelInferencePersistence:
                     "data_trade_date": data_trade_date,
                     "prediction_trade_date": prediction_trade_date,
                     "status": status,
+                    "pool_id": resolved_pool_id,
                     "request_json": json.dumps(request_payload, ensure_ascii=False),
                     "created_at": created_at,
                 },
@@ -346,6 +378,7 @@ class ModelInferencePersistence:
         run_id: str | None = None,
         status: str | None = None,
         inference_date: date | None = None,
+        pool_id: str | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> dict[str, Any]:
@@ -371,6 +404,10 @@ class ModelInferencePersistence:
         if inference_date:
             filters.append("data_trade_date = :inference_date")
             params["inference_date"] = inference_date
+        if pool_id is not None:
+            # 空串=全市场；显式传 pool_id 时只看该范围
+            filters.append("COALESCE(pool_id, '') = :pool_id")
+            params["pool_id"] = str(pool_id or "").strip()
 
         where_sql = " AND ".join(filters)
         async with get_session(read_only=True) as session:
@@ -380,7 +417,8 @@ class ModelInferencePersistence:
                         text(
                             f"""
                             SELECT COUNT(*) FROM (
-                                SELECT DISTINCT ON (data_trade_date) data_trade_date
+                                SELECT DISTINCT ON (data_trade_date, COALESCE(pool_id, ''))
+                                    data_trade_date, COALESCE(pool_id, '') AS pool_scope
                                 FROM qm_model_inference_runs
                                 WHERE {where_sql}
                             ) sub
@@ -399,11 +437,13 @@ class ModelInferencePersistence:
                         text(
                             f"""
                             SELECT * FROM (
-                                -- 同一天多批次去重：优先保留有信号的批次(signals_count>0)
-                                SELECT DISTINCT ON (data_trade_date) *
+                                -- 同一天+同池范围去重：全市场与池run各保留一条，
+                                -- 同范围多批次优先保留有信号的批次(signals_count>0)
+                                SELECT DISTINCT ON (data_trade_date, COALESCE(pool_id, '')) *
                                 FROM qm_model_inference_runs
                                 WHERE {where_sql}
-                                ORDER BY data_trade_date DESC, signals_count DESC, created_at DESC
+                                ORDER BY data_trade_date DESC, COALESCE(pool_id, ''),
+                                         signals_count DESC, created_at DESC
                             ) sub
                             ORDER BY data_trade_date DESC
                             LIMIT :limit OFFSET :offset
