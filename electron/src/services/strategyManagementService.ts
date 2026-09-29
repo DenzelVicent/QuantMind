@@ -278,6 +278,35 @@ class StrategyManagementService {
   }
 
   /**
+   * 从策略代码 STRATEGY_CONFIG.kwargs 提取选股参数（topk/n_drop 等）。
+   * 与后端 simulation engine 的 AST 解析口径对齐的轻量实现：
+   * 仅解析字面量 kwargs，失败返回 {} 不阻断保存。
+   */
+  private extractKwargsFromCode(code: string): Record<string, any> {
+    if (!code || !code.includes('STRATEGY_CONFIG')) return {};
+    const out: Record<string, any> = {};
+    const intKeys = ['topk', 'n_drop', 'rebalance_days', 'lot_size'];
+    const floatKeys = ['min_score', 'max_position_pct'];
+    for (const key of intKeys) {
+      const m = code.match(new RegExp(`["']${key}["']\\s*:\\s*(\\d+)`));
+      if (m) {
+        const v = parseInt(m[1], 10);
+        if (Number.isFinite(v)) out[key] = v;
+      }
+    }
+    for (const key of floatKeys) {
+      const m = code.match(new RegExp(`["']${key}["']\\s*:\\s*(\\d+(?:\\.\\d+)?)`));
+      if (m) {
+        const v = parseFloat(m[1]);
+        if (Number.isFinite(v)) out[key] = v;
+      }
+    }
+    const wm = code.match(/["']weight_mode["']\s*:\s*["']([^"']+)["']/);
+    if (wm && wm[1]) out.weight_mode = wm[1];
+    return out;
+  }
+
+  /**
    * 更新现有策略
    */
   async updateStrategy(strategyId: string, updates: Partial<StrategyFile>): Promise<StrategyFile> {
@@ -291,6 +320,16 @@ class StrategyManagementService {
       // code 直接放顶层（对应后端 UpdateStrategyRequest.code 字段）
       if (updates.code !== undefined) {
         payload.code = updates.code;
+      }
+      // TOPK 修复：code 更新时同步透传 parameters，否则后端沿用旧 parameters.topk=50，
+      // 模拟盘表现为“编辑策略后仍跑默认50只”。显式 parameters 优先，code 解析只做回填/覆盖。
+      if ((updates as any).parameters !== undefined) {
+        payload.parameters = (updates as any).parameters;
+      } else if (updates.code !== undefined) {
+        const kwargs = this.extractKwargsFromCode(String(updates.code || ''));
+        if (Object.keys(kwargs).length > 0) {
+          payload.parameters = kwargs;
+        }
       }
 
       const response = await this.client.put(`/api/v1/strategies/${strategyId}`, payload);

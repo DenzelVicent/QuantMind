@@ -394,6 +394,54 @@ class StrategyUpdateRequest(BaseModel):
     parameters: dict[str, Any] | None = Field(None, description="策略参数")
 
 
+_STRATEGY_CODE_KWARG_KEYS = (
+    "topk",
+    "n_drop",
+    "rebalance_days",
+    "weight_mode",
+    "min_score",
+    "max_position_pct",
+    "lot_size",
+)
+
+
+def _extract_strategy_config_kwargs(code_str: Any) -> dict[str, Any]:
+    """从策略代码 STRATEGY_CONFIG.kwargs 提取选股参数。
+
+    与 simulation engine 侧解析口径一致（AST 字面量解析）。
+    解析失败返回 {}，调用方回退旧 parameters，不抛错。
+    """
+    import ast
+
+    if not code_str or not str(code_str).strip():
+        return {}
+    try:
+        tree = ast.parse(str(code_str))
+    except Exception:
+        return {}
+    for node in tree.body:
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+            continue
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        if not any(
+            isinstance(t, ast.Name) and t.id == "STRATEGY_CONFIG" for t in targets
+        ):
+            continue
+        try:
+            cfg = ast.literal_eval(node.value)
+        except Exception:
+            return {}
+        if not isinstance(cfg, dict):
+            return {}
+        kwargs = cfg.get("kwargs") if isinstance(cfg.get("kwargs"), dict) else {}
+        merged = {**kwargs}
+        for key in _STRATEGY_CODE_KWARG_KEYS:
+            if key in cfg and key not in merged:
+                merged[key] = cfg[key]
+        return {k: merged[k] for k in _STRATEGY_CODE_KWARG_KEYS if k in merged}
+    return {}
+
+
 class StrategyListItem(BaseModel):
     id: str
     name: str
@@ -834,11 +882,18 @@ async def update_strategy(
             else existing.get("description", "")
         )
         new_tags = body.tags if body.tags is not None else existing.get("tags", [])
-        new_parameters = (
-            body.parameters
-            if body.parameters is not None
-            else existing.get("parameters", {})
-        )
+        if body.parameters is not None:
+            new_parameters = dict(body.parameters)
+            # 显式 parameters 优先，但 code 里新增的 kwarg 键做缺失回填
+            if body.code is not None:
+                for k, v in _extract_strategy_config_kwargs(body.code).items():
+                    new_parameters.setdefault(k, v)
+        else:
+            new_parameters = dict(existing.get("parameters", {}) or {})
+            # code 更新但没带 parameters 时，用新代码 STRATEGY_CONFIG 覆盖旧值，
+            # 否则 DB 里陈旧 topk=50 会一直屏蔽代码修改（模拟盘表现为改完仍跑50只）
+            if body.code is not None:
+                new_parameters.update(_extract_strategy_config_kwargs(new_code))
 
         result = await svc.save(
             user_id=user_id,

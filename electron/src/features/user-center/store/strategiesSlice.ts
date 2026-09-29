@@ -211,6 +211,7 @@ export const updateStrategy = createAsyncThunk(
         description: (data as any).description,
         code: (data as any).code,
         tags: (data as any).tags,
+        parameters: (data as any).parameters,
       } as any);
       // 兼容后端返回空的情况，回退为本地合并
       if (s && s.id) {
