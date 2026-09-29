@@ -55,7 +55,7 @@ INFRA_SERVICES = [
         "desc": "Redis 缓存/队列",
     },
     {
-        "service": "data_gateway",
+        "service": "gateway",
         "host": os.getenv("ADMIN_DASHBOARD_DATA_GATEWAY_HOST", "quantmind-data-gateway"),
         "port": int(os.getenv("ADMIN_DASHBOARD_DATA_GATEWAY_PORT", "8004")),
         "desc": "数据网关 (8004)",

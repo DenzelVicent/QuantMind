@@ -187,7 +187,7 @@ export const AdminDashboard: React.FC = () => {
         stream: <GlobalOutlined />,
         postgres: <DatabaseOutlined />,
         redis: <DatabaseOutlined />,
-        data_gateway: <DeploymentUnitOutlined />,
+        gateway: <DeploymentUnitOutlined />,
         web: <HomeOutlined />,
         qwenpaw: <MessageOutlined />,
         rsshub: <GlobalOutlined />,
