@@ -67,7 +67,7 @@ export const InferenceCenterPage: React.FC = () => {
   const currentMarket = useAppSelector(selectCurrentMarket);
   const marketConfig = getMarketConfig(currentMarket);
 
-  // 顶层 Tab：'cross-section'（市场截面推理）| 'individual'（个股预测推理）
+  // 顶层 Tab：'cross-section'（市场截面推理）| 'individual'（个股推理中心）
   // 从别的页面带 state.tab 跳进来时要真正生效（原来三元两支都写 'cross-section'，该 Tab 永远进不去）
   const initialTopTab = (location.state as any)?.tab === 'individual' ? 'individual' : 'cross-section';
   const initialModelId = (location.state as any)?.modelId || '';
@@ -101,7 +101,7 @@ export const InferenceCenterPage: React.FC = () => {
   const [inferPoolPickerOpen, setInferPoolPickerOpen] = useState(false);
 
   // ─────────────────────────────────────────────────────────────
-  // 模块 2：个股预测推理 (Individual Stock Inference) 状态
+  // 模块 2：个股推理中心 (Individual Stock Inference) 状态
   // ─────────────────────────────────────────────────────────────
   const [symbol, setSymbol] = useState('SH600519');
   const [inputCode, setInputCode] = useState('SH600519');
@@ -374,7 +374,7 @@ export const InferenceCenterPage: React.FC = () => {
   };
 
   // ─────────────────────────────────────────────────────────────
-  // 个股预测推理：获取可用模型与执行真实预测
+  // 个股推理中心：获取可用模型与执行真实预测
   // ─────────────────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
@@ -568,7 +568,7 @@ export const InferenceCenterPage: React.FC = () => {
             )}
           >
             <TrendingUp size={14} />
-            个股预测推理
+            个股推理中心
           </button>
         </div>
       </div>
@@ -777,7 +777,7 @@ export const InferenceCenterPage: React.FC = () => {
         </div>
       )}
 
-      {/* ================= 模式 2：个股预测推理 ================= */}
+      {/* ================= 模式 2：个股推理中心 ================= */}
       {topTab === 'individual' && (
         <div className="flex-1 min-h-0 bg-white border border-gray-200 shadow-sm rounded-[28px] flex overflow-hidden">
           {/* 左侧：个股参数配置 */}
