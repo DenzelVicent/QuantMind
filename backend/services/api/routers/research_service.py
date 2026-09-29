@@ -2595,7 +2595,7 @@ async def predict_single_stock(
 
     # “开始预测推理”走独立轻路线：pred.parquet 直读优先，否则实时推理，
     # 全程不落库（不写 run 记录/信号表/Redis 标记/pred 回写），结果只在前端缓存。
-    # 同时使用所有选定模型（consensus_model_ids，最多 4 个；留空=全部可用模型）
+    # 同时使用所有选定模型（consensus_model_ids，最多 6 个；留空=全部可用模型）
     # 逐个对目标标的执行真实推理，避免只跑主模型、其余模型仅读历史残差。
     # 延迟导入避免 research/model_training 路由在应用启动阶段发生循环导入。
     independent_models: list[dict[str, Any]] = []
@@ -2611,7 +2611,7 @@ async def predict_single_stock(
             InferenceScriptRunner,
         )
 
-        # 本次同时推理的模型集合：优先用户勾选，主模型必选，最多 4 个。
+        # 本次同时推理的模型集合：优先用户勾选，主模型必选，最多 6 个。
         exec_model_ids: list[str] = []
         for mid_candidate in consensus_model_ids or []:
             mid_s = str(mid_candidate or "").strip()
@@ -2625,7 +2625,7 @@ async def predict_single_stock(
                 for m in available_models
                 if str(m.get("modelId") or "").strip()
             ]
-        exec_model_ids = exec_model_ids[:4]
+        exec_model_ids = exec_model_ids[:6]
 
         requested_date = date.fromisoformat(target_date or latest_date)
         for exec_mid in exec_model_ids:
@@ -2769,7 +2769,7 @@ async def predict_single_stock(
     resolved_date = latest_date
     main_row = None
     consensus_rows: list[Any] = []
-    selected_set = {m for m in (consensus_model_ids or [])[:4] if m}
+    selected_set = {m for m in (consensus_model_ids or [])[:6] if m}
     if score_rows:
         if selected_set:
             sel_rows = [

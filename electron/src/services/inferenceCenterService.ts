@@ -99,8 +99,8 @@ class InferenceCenterService {
     );
     const client = axios.create({
       baseURL,
-      // 实际模型执行会跑完整个推理批次，30 秒不足以覆盖生产模型冷启动与落库。
-      timeout: 120000,
+      // 实际模型执行会跑完整个推理批次，6 模型串行冷启动耗时更长，超时放宽到 180 秒。
+      timeout: 180000,
     });
     client.interceptors.request.use((config) => {
       const token = authService.getAccessToken();

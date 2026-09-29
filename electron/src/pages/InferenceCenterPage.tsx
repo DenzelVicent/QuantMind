@@ -49,8 +49,8 @@ import { stockListService, Stock } from '../services/stockListService';
 
 const { Text } = Typography;
 
-// 个股推理同时使用的模型数量上限（与后端 consensus_model_ids[:4] 保持一致）
-const MAX_CONSENSUS_MODELS = 4;
+// 个股推理同时使用的模型数量上限（与后端 consensus_model_ids[:6] 保持一致）
+const MAX_CONSENSUS_MODELS = 6;
 
 // 模型卡片类型
 type ModelCardOption = AvailableModelOption & {
@@ -408,7 +408,7 @@ export const InferenceCenterPage: React.FC = () => {
         setAvailableModels(liveModels);
         if (liveModels.length > 0) {
           setSingleStockModelId(liveModels[0].modelId);
-          // 个股推理默认同时使用全部可用模型（最多 4 个，与后端上限一致）
+          // 个股推理默认同时使用全部可用模型（最多 6 个，与后端上限一致）
           setConsensusModelIds(liveModels.slice(0, MAX_CONSENSUS_MODELS).map((m) => m.modelId));
         }
       })
@@ -496,7 +496,7 @@ export const InferenceCenterPage: React.FC = () => {
     return availableModels.find((m) => m.modelId === singleStockModelId) || availableModels[0];
   }, [availableModels, singleStockModelId]);
 
-  // 勾选/取消模型：已勾选集合即本次个股推理同时使用的模型（最多 4 个）
+  // 勾选/取消模型：已勾选集合即本次个股推理同时使用的模型（最多 6 个）
   const toggleConsensusModel = useCallback((modelId: string) => {
     if (consensusModelIds.includes(modelId)) {
       const next = consensusModelIds.filter((id) => id !== modelId);
