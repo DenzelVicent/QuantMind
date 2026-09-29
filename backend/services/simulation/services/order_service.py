@@ -5,7 +5,7 @@ Simulation order service.
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import String, and_, cast, select
+from sqlalchemy import String, and_, cast, false, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.services.simulation.models.order import OrderStatus, SimOrder
@@ -104,7 +104,14 @@ class SimOrderService:
         if portfolio_id is not None:
             conditions.append(SimOrder.portfolio_id == portfolio_id)
         if status:
-            conditions.append(SimOrder.status == status)
+            # 前端 getOrders 统一 toUpperCase 传大写（如 FILLED），PG 枚举标签为小写；
+            # 此处归一化，与实盘 trading_orders 的 normalized_status 同口径。
+            # 非法值匹配空（而非让 PG 非法枚举标签抛 500）。
+            status_norm = str(status).strip().lower()
+            try:
+                conditions.append(SimOrder.status == OrderStatus(status_norm))
+            except ValueError:
+                conditions.append(false())
         if symbol:
             conditions.append(SimOrder.symbol == symbol.upper())
         if start_date:

@@ -166,6 +166,13 @@ async def _do_proxy(request: Request, user: dict | None = None) -> Response:
 @router.api_route(
     "/api/v1/portfolios/{p:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"], include_in_schema=False
 )
+# 持仓直调（/positions/{id}/price|adjust|close|history）：trade 侧 positions.router
+# 挂载于 /api/v1（trade/main.py），此前网关缺转发导致直调 404。
+# /internal/sync-trade 刻意不暴露：服务间内部调用且无用户鉴权，不应过网关。
+@router.api_route("/api/v1/positions", methods=["GET", "POST", "OPTIONS"], include_in_schema=False)
+@router.api_route(
+    "/api/v1/positions/{p:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"], include_in_schema=False
+)
 @router.api_route("/api/v1/internal/strategy", methods=["GET", "POST", "OPTIONS"], include_in_schema=False)
 @router.api_route(
     "/api/v1/internal/strategy/{p:path}",
