@@ -678,12 +678,20 @@ class SimulationHostedScheduler:
             )
             if result.get("status") == "skipped":
                 # 没有可用信号批次：本轮不建仓，作业标记为 skipped 而非失败。
+                # 必须释放分布式锁：锁 key 按 (trade_date, phase) 粒度、TTL 36h，
+                # 不释放会挡住同一窗口内后续轮询（30s 一轮/窗口 90s），信号迟到
+                # 也无法补上；异常路径同样删锁，两处对齐。
                 await SimulationRebalanceJobService.mark_skipped(
                     task_id,
                     last_error=str(result.get("error") or "signal batch unavailable")[
                         :300
                     ],
                 )
+                try:
+                    if self.redis.client is not None:
+                        self.redis.client.delete(lock_key)
+                except Exception:
+                    pass
                 logger.info(
                     "simulation hosted cycle skipped: tenant=%s user=%s strategy=%s phase=%s task=%s reason=%s",
                     tenant_id,
