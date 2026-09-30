@@ -1284,7 +1284,19 @@ class ManualExecutionService:
         # （用户在前端显式选择默认模型触发推理时 model_source=explicit_model_id，信号来源仍是该默认模型）
         allowed_sources = {"user_default", "explicit_system_model"}
         run_model_id = str(latest_run.get("model_id") or "").strip()
-        if latest_model_source in {"explicit_model_id", "strategy_binding"} and run_model_id == default_model_id:
+        run_effective_id = str(latest_run.get("effective_model_id") or "").strip()
+        _run_matches_default = run_model_id == default_model_id or (
+            bool(run_effective_id) and run_effective_id == default_model_id
+        )
+        if latest_model_source in {"explicit_model_id", "strategy_binding"} and _run_matches_default:
+            latest_model_source = "user_default"
+        if _run_matches_default and latest_model_source.strip().lower() in {
+            "",
+            "none",
+            "null",
+        }:
+            # 历史脏数据兼容：自动补全旧版本未写 model_source（NULL/''），
+            # 且该行归属当前默认模型时回洗为默认链路，避免误判 mismatch。
             latest_model_source = "user_default"
         if latest_model_source not in allowed_sources:
             return {

@@ -24,6 +24,41 @@ logger = logging.getLogger(__name__)
 ProgressCb = Callable[[dict[str, Any]], None]
 
 
+def _resolve_backfill_model_lineage(
+    *, tenant_id: str, user_id: str, model_id: str
+) -> tuple[str, str]:
+    """补全链路的模型来源解析：复用默认模型链路，保证托管准入放行。
+
+    backfill 只对 `is_default=TRUE` 的用户默认模型执行，正常应得
+    `user_default`。此处走 `resolve_effective_model_sync(model_id=mid)`，
+    与手动推理 `_resolve_requested_model` 同口径；解析失败或返回 `none`/空时
+    回退为 `(model_id, "user_default")`，避免写出 NULL 来源导致托管误判
+    `mismatch`（见 manual_execution_service.get_default_model_hosted_status）。
+    """
+    mid = str(model_id or "").strip()
+    try:
+        from backend.shared.model_registry import model_registry_service
+
+        resolved = model_registry_service.resolve_effective_model_sync(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            model_id=mid,
+        )
+        effective = str(resolved.get("effective_model_id") or mid or "").strip()
+        source = str(resolved.get("model_source") or "").strip()
+        if not effective:
+            effective = mid
+        if source in {"user_default", "explicit_system_model"}:
+            return effective, source
+        if source in {"explicit_model_id", "strategy_binding"} and effective == mid:
+            # 显式传入的恰好就是默认模型：信号来源仍是该默认模型
+            return effective, "user_default"
+        # none/空/其它：backfill 上下文已限定为默认模型，直接归属默认链路
+        return effective or mid, "user_default"
+    except Exception:
+        return mid, "user_default"
+
+
 def resolve_pred_candidates(storage_path: str) -> list[Path]:
     base = Path(storage_path)
     return [
@@ -266,6 +301,8 @@ async def _mark_failed_run(
     model_id: str,
     d: str,
     source: str,
+    effective_model_id: str = "",
+    model_source: str = "",
 ) -> None:
     if result is None or getattr(result, "success", False):
         return
@@ -297,6 +334,9 @@ async def _mark_failed_run(
             error_message=str(getattr(result, "error", "") or "backfill 推理失败")[
                 :2000
             ],
+            active_model_id=effective_model_id or model_id,
+            effective_model_id=effective_model_id or model_id,
+            model_source=model_source or "user_default",
         )
     except Exception:
         pass
@@ -310,6 +350,8 @@ async def _mark_success_run(
     model_id: str,
     d: str,
     source: str,
+    effective_model_id: str = "",
+    model_source: str = "",
 ) -> None:
     """补全成功的日期同样落一条 completed 记录。
 
@@ -353,6 +395,9 @@ async def _mark_success_run(
             status="completed",
             updated_at=now,
             signals_count=int(getattr(result, "signals_count", 0) or 0),
+            active_model_id=effective_model_id or model_id,
+            effective_model_id=effective_model_id or model_id,
+            model_source=model_source or "user_default",
         )
     except Exception as exc:
         # 落历史失败不能影响补全本身（pred.parquet 已经写好）
@@ -420,6 +465,11 @@ async def backfill_model_gaps(
         }
         progress_cb(payload)
 
+    # 补全行必须带默认模型来源，否则托管准入判 mismatch（观察态）。
+    _lineage_effective, _lineage_source = _resolve_backfill_model_lineage(
+        tenant_id=tenant_id, user_id=user_id, model_id=model_id
+    )
+
     try:
         for idx, d in enumerate(gaps):
             try:
@@ -469,6 +519,8 @@ async def backfill_model_gaps(
                     model_id=model_id,
                     d=d,
                     source=source,
+                    effective_model_id=_lineage_effective,
+                    model_source=_lineage_source,
                 )
                 await _mark_success_run(
                     result=result,
@@ -477,6 +529,8 @@ async def backfill_model_gaps(
                     model_id=model_id,
                     d=d,
                     source=source,
+                    effective_model_id=_lineage_effective,
+                    model_source=_lineage_source,
                 )
 
                 if not executed and allow_template_copy:
