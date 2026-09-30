@@ -43,7 +43,7 @@ def test_historical_chinext_one_price_limit_is_blocked(symbol):
 
 
 def test_chinext_rule_switch_on_august_24():
-    obj = exchange(11, 11)
+    obj = exchange(11, 11.1)
     assert blocked(obj, "sz300811", "2020-08-21")
     assert not blocked(obj, "sz300811", "2020-08-24")
     assert blocked(exchange(12, 12), "sz300811", "2020-08-24")
@@ -51,13 +51,13 @@ def test_chinext_rule_switch_on_august_24():
 
 @pytest.mark.parametrize("symbol", ["sh688001", "sh689009", "sz302001"])
 def test_growth_board_twenty_percent(symbol):
-    assert not blocked(exchange(11, 11), symbol, "2026-01-02")
+    assert not blocked(exchange(11, 11.1), symbol, "2026-01-02")
     assert blocked(exchange(12, 12), symbol, "2026-01-02")
 
 
 @pytest.mark.parametrize("symbol", ["bj920001", "920001.BJ", "BJ830001"])
 def test_beijing_thirty_percent(symbol):
-    assert not blocked(exchange(11, 11), symbol)
+    assert not blocked(exchange(11, 11.1), symbol)
     assert blocked(exchange(13, 13), symbol)
 
 
@@ -70,39 +70,40 @@ def test_afternoon_limit_does_not_reject_earlier_open_fill():
     assert blocked(exchange(10.2, 11, deal_price="$close"))
 
 
-def test_equal_open_close_below_limit_remains_tradable():
-    assert not blocked(exchange(10.5, 10.5))
+@pytest.mark.parametrize("price", [9.0, 10.0, 10.5, 11.0])
+def test_strict_equal_open_close_rejects_buys_even_without_st_metadata(price):
+    assert blocked(exchange(price, price))
 
 
 def test_limit_up_can_be_sold_and_limit_down_cannot():
     assert not blocked(exchange(11, 11), direction=OrderDir.SELL)
     assert blocked(exchange(9, 9), direction=OrderDir.SELL)
-    assert not blocked(exchange(9, 9), direction=OrderDir.BUY)
+    assert not blocked(exchange(9, 9.2), direction=OrderDir.BUY)
 
 
 def test_directionless_filter_checks_both_sides():
     assert blocked(exchange(11, 11), direction=None)
     assert blocked(exchange(9, 9), direction=None)
-    assert not blocked(exchange(10, 10), direction=None)
+    assert not blocked(exchange(10, 10.1), direction=None)
 
 
 def test_raw_cent_rounding_and_float32_adjusted_prices():
     obj = exchange(3.55, 3.55, reference=3.23, factor=2.030070066)
     obj.quote.values = {k: np.float32(v) for k, v in obj.quote.values.items()}
     assert blocked(obj)
-    assert not blocked(exchange(3.54, 3.54, reference=3.23))
+    assert not blocked(exchange(3.54, 3.53, reference=3.23))
 
 
 @pytest.mark.parametrize("field", ["$open", "$close", "$factor", "Ref($close, 1)"])
 @pytest.mark.parametrize("value", [None, np.nan, np.inf, 0.0])
 def test_missing_invalid_current_quotes_fail_closed(field, value):
-    obj = exchange(10, 10)
+    obj = exchange(10, 10.1)
     obj.quote.values[field] = value
     assert blocked(obj)
 
 
 def test_missing_change_does_not_matter_if_reference_is_valid():
-    assert not blocked(exchange(10, 10))
+    assert not blocked(exchange(10, 10.1))
 
 
 def test_non_cn_instruments_have_no_price_limit():

@@ -315,8 +315,10 @@ class CnExchange(Exchange):
     ) -> bool:
         """Block at the execution price; never use today's return for an open fill.
 
-        A buy at the upper limit (including open == close limit boards) is
-        rejected even if the daily bar contains volume. Missing reference or
+        A buy with open == close is rejected under the strict user policy,
+        regardless of its daily return or historical ST metadata. A buy at the
+        upper limit is also rejected even if the daily bar contains volume.
+        Missing reference or
         execution quotes fail closed; historical quote fallback is valuation only.
         """
         symbol = StockCodeUtil.to_suffix(stock_id)
@@ -359,11 +361,8 @@ class CnExchange(Exchange):
                 if side == OrderDir.BUY:
                     opening = quote("$open") / factor
                     close = quote("$close") / factor
-                    one_price_limit = (
-                        abs(opening - close) <= epsilon
-                        and opening >= upper - epsilon
-                    )
-                    if one_price_limit or price >= upper - epsilon:
+                    one_price_bar = abs(opening - close) <= epsilon
+                    if one_price_bar or price >= upper - epsilon:
                         return True
                 elif side == OrderDir.SELL and price <= lower + epsilon:
                     return True
