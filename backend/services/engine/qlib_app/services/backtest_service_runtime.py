@@ -723,7 +723,7 @@ class QlibBacktestServiceRuntimeMixin(QlibBacktestServiceQueryMixin):
                 use_vect = False
                 task_log.info(
                     "vectorized_safety_gate",
-                    "策略含向量化引擎无法表达的逻辑，已退回 step 模式保证语义正确",
+                    "策略或涨跌停撮合规则无法由向量化引擎保真执行，已退回 step 模式",
                     strategy_type=request.strategy_type,
                 )
             task_log.info(
@@ -1233,6 +1233,11 @@ class QlibBacktestServiceRuntimeMixin(QlibBacktestServiceQueryMixin):
         schema 默认值（如 stop_loss=-0.08）不作为判据，否则会误伤默认策略。
         """
         try:
+            # The vectorized engine only has close returns and target weights;
+            # it cannot enforce execution-price limits or retain limit-down
+            # holdings. Route A shares through the actual exchange order gate.
+            if QlibBacktestServiceRuntimeMixin._infer_backtest_market(request) == "CN":
+                return False
             # 1. 信号必须是 pred 类信号
             signal = self._normalize_signal_config(request.strategy_params.signal)
             if isinstance(signal, str) and not (

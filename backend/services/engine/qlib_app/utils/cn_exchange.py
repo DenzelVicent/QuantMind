@@ -1,7 +1,7 @@
 import json
 import logging
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -10,6 +10,7 @@ from qlib.backtest.exchange import Exchange
 from qlib.backtest.position import BasePosition
 
 from backend.shared.redis_sentinel_client import get_redis_sentinel_client
+from backend.shared.stock_utils import StockCodeUtil
 
 logger = logging.getLogger(__name__)
 from backend.services.engine.qlib_app.utils.structured_logger import StructuredTaskLogger
@@ -39,6 +40,11 @@ class CnExchange(Exchange):
         allow_short_selling: bool = False,
         **kwargs,
     ):
+        # Ref uses the trading calendar, not a wall-clock lookback. Dividing this
+        # adjusted previous close by today's factor gives the ex-rights reference.
+        fields = set(kwargs.pop("subscribe_fields", []) or [])
+        fields.update({"$open", "Ref($close, 1)"})
+        kwargs["subscribe_fields"] = sorted(fields)
         # Pass dummy costs to super because we will calculate our own
         super().__init__(open_cost=0, close_cost=0, min_cost=0, **kwargs)
         self.commission = commission
@@ -291,32 +297,14 @@ class CnExchange(Exchange):
         return amount
 
     @staticmethod
-    def _get_limit_threshold(stock_id: str) -> float:
-        """Return the daily price limit threshold for a stock based on its code.
+    def _get_limit_threshold(stock_id: str, trade_date=None) -> float:
+        """Use the shared dated board rules (including historical ChiNext/BSE)."""
+        from backend.services.simulation.services.local_market_data import limit_pct
 
-        Main board (SH60xxxx, SZ00xxxx, SZ20xxxx): ±10%
-        ChiNext (SZ30xxxx): ±20%
-        STAR Market (SH68xxxx): ±20%
-        Beijing (BJ8xxxxx, BJ4xxxxx): ±30%
-        ST stocks: ±5% (cannot be detected from code alone; 5% moves are
-        covered by the 10% threshold — a 5% ST limit shows as change ≈ 5%
-        which is below the 9.5% gate, so ST stocks are NOT falsely filtered).
-        """
-        code = stock_id.split(".")[0] if "." in stock_id else stock_id
-        # Remove market prefix if present (SH/SZ/BJ)
-        pure = code.upper()
-        for pfx in ("SH", "SZ", "BJ"):
-            if pure.startswith(pfx):
-                pure = pure[len(pfx):]
-                break
-
-        if pure.startswith("68"):
-            return 0.195   # STAR ±20%
-        if pure.startswith("30"):
-            return 0.195   # ChiNext ±20%
-        if pure.startswith("8") or pure.startswith("4"):
-            return 0.295   # Beijing ±30%
-        return 0.095       # Main board ±10%
+        day = pd.Timestamp(trade_date or datetime.now()).date()
+        return float(
+            limit_pct(StockCodeUtil.to_suffix(stock_id), is_st=False, trade_date=day)
+        )
 
     def check_stock_limit(
         self,
@@ -325,43 +313,68 @@ class CnExchange(Exchange):
         end_time: pd.Timestamp,
         direction: int | None = None,
     ) -> bool:
-        """Override base check_stock_limit to compute limits from $change field.
+        """Block at the execution price; never use today's return for an open fill.
 
-        The base class reads $limit_buy/$limit_sell which don't exist in our
-        Qlib bin data.  Instead we read the $change field (daily return) and
-        compare against the board-specific limit threshold.
-
-        Returns True if the stock is at price limit (NOT tradable).
+        A buy at the upper limit (including open == close limit boards) is
+        rejected even if the daily bar contains volume. Missing reference or
+        execution quotes fail closed; historical quote fallback is valuation only.
         """
-        try:
-            change = self.quote.get_data(
-                stock_id, start_time, end_time, field="$change", method="ts_data_last"
-            )
-            if change is None or np.isnan(float(change)):
-                return False
-
-            change = float(change)
-            threshold = self._get_limit_threshold(stock_id)
-
-            if direction is None:
-                # Any limit → not tradable
-                return abs(change) >= threshold
-            elif direction == OrderDir.BUY:
-                # Limit-UP → cannot buy
-                return change >= threshold
-            elif direction == OrderDir.SELL:
-                # Limit-DOWN → cannot sell
-                return change <= -threshold
-            else:
-                return False
-        except Exception:
-            # If we can't read change data, don't block the trade
+        symbol = StockCodeUtil.to_suffix(stock_id)
+        if not symbol.endswith((".SH", ".SZ", ".BJ")):
             return False
+        try:
+            from backend.services.simulation.services.local_market_data import (
+                compute_limits,
+            )
+
+            def quote(field):
+                value = self.quote.get_data(
+                    stock_id,
+                    start_time,
+                    end_time,
+                    field=field,
+                    method="ts_data_last",
+                )
+                if self._is_invalid_quote(value):
+                    raise ValueError(f"invalid current quote: {field}")
+                return float(value)
+
+            factor = quote("$factor")
+            reference = quote("Ref($close, 1)") / factor
+            upper, lower = compute_limits(
+                symbol,
+                reference,
+                is_st=False,
+                trade_date=pd.Timestamp(start_time).date(),
+            )
+            # Qlib stores float32 adjusted quotes. Compare raw cents with a
+            # sub-cent tolerance rather than a 0.5 percentage-point price gate.
+            epsilon = 1e-4
+            directions = (
+                (OrderDir.BUY, OrderDir.SELL) if direction is None else (direction,)
+            )
+            for side in directions:
+                field = self.buy_price if side == OrderDir.BUY else self.sell_price
+                price = quote(field) / factor
+                if side == OrderDir.BUY:
+                    opening = quote("$open") / factor
+                    close = quote("$close") / factor
+                    one_price_limit = (
+                        abs(opening - close) <= epsilon
+                        and opening >= upper - epsilon
+                    )
+                    if one_price_limit or price >= upper - epsilon:
+                        return True
+                elif side == OrderDir.SELL and price <= lower + epsilon:
+                    return True
+            return False
+        except Exception:
+            return True
 
     def quote_clipping(self, order: Order) -> Order | None:
         """
         Clip the order based on price limits.
-        Uses our overridden check_stock_limit that reads $change data.
+        Uses the same execution-price gate as Qlib's check_order.
         """
         if self.check_stock_limit(order.stock_id, order.start_time, order.end_time, direction=order.direction):
             task_logger.info("skip_trade_by_limit", "Skip trade by price limit", stock_id=order.stock_id, start_time=str(order.start_time))

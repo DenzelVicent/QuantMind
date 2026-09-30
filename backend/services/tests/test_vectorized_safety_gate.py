@@ -22,6 +22,7 @@ def _make_request(content: str, signal: str = "<PRED>"):
         strategy_content=content,
         strategy_params=types.SimpleNamespace(signal=signal),
         strategy_type="CustomStrategy",
+        qlib_region="us",
     )
 
 
@@ -48,6 +49,16 @@ def test_safe_standard_topk_full_rebalance():
         '"kwargs": {"signal": "<PRED>", "topk": 50, "n_drop": 50}}'
     )
     assert _safe(req) is True
+
+
+@pytest.mark.parametrize("region", [None, "cn"])
+def test_cn_routes_to_step_for_strict_price_limit_execution(region):
+    req = _make_request(
+        'STRATEGY_CONFIG = {"class": "RedisTopkStrategy", '
+        '"kwargs": {"signal": "<PRED>", "topk": 50, "n_drop": 50}}'
+    )
+    req.qlib_region = region
+    assert _safe(req) is False
 
 
 def test_safe_topkdropout_no_partial_rebalance():
@@ -102,9 +113,9 @@ def test_unsafe_pool_file():
 
 def test_unsafe_custom_class():
     req = _make_request(
-        'class MyCustom:\n'
-        '    def __init__(self, signal, topk=50):\n'
-        '        pass\n'
+        "class MyCustom:\n"
+        "    def __init__(self, signal, topk=50):\n"
+        "        pass\n"
         'STRATEGY_CONFIG = {"class": "MyCustom", '
         '"kwargs": {"signal": "<PRED>", "topk": 10}}'
     )
