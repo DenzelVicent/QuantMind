@@ -292,7 +292,9 @@ async def _audit_ledger_cash() -> int:
 
     判据：``simulation_accounts.cash`` 应等于
     ``initial_equity + Σ simulation_cash_ledger.amount``（成交/公司行为流水）。
-    漂移只告警并写 simulation_reconcile_reports(field='ledger_cash')，不自动改数
+    信息性流水（BONUS_SHARE_VALUE：送股只记市值增量备查，不动现金）不参与
+    求和，否则送股后恒报漂移。漂移只告警并写
+    simulation_reconcile_reports(field='ledger_cash')，不自动改数
     （需人工核对流水）。
     """
     from sqlalchemy import text as _text
@@ -310,6 +312,9 @@ async def _audit_ledger_cash() -> int:
                     "FROM simulation_accounts a "
                     "LEFT JOIN simulation_cash_ledger l "
                     "  ON l.account_id = a.account_id "
+                    # BONUS_SHARE_VALUE 是送股/拆股的市值增量备查行（不动现金），
+                    # 计入求和会破坏 cash 恒等式，送股后必误报漂移。
+                    "  AND l.event_type <> 'BONUS_SHARE_VALUE' "
                     "WHERE a.initial_equity > 0 "
                     "GROUP BY a.account_id, a.tenant_id, a.user_id, "
                     "a.initial_equity, a.cash"

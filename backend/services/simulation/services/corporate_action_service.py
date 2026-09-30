@@ -260,9 +260,29 @@ class SimulationCorporateActionService:
             )
             if multiplier <= 0:
                 multiplier = 1.0
+            # 重跑幂等：已记过 BONUS_SHARE_VALUE 的账户本轮不再翻倍股数。
+            # （action 状态机一次性，processing 回滚/手工重置 pending 后重跑
+            # 会重复执行 _apply_action；分红分支已有 _ledger_exists  guard，
+            # 这里对齐。）
+            bonus_applied_accounts: set[str] = set()
+            try:
+                _done_rows = (
+                    await session.execute(
+                        select(SimulationCashLedger.account_id).where(
+                            SimulationCashLedger.ref_type == "corporate_action",
+                            SimulationCashLedger.ref_id == str(action.id),
+                            SimulationCashLedger.event_type == "BONUS_SHARE_VALUE",
+                        )
+                    )
+                ).scalars().all()
+                bonus_applied_accounts = {str(v) for v in _done_rows if v}
+            except Exception:
+                bonus_applied_accounts = set()
             touched_accounts: set[str] = set()
             old_qty_by_account: dict[str, float] = defaultdict(float)
             for lot in lots:
+                if str(lot.account_id) in bonus_applied_accounts:
+                    continue
                 old_open = float(lot.quantity_open or 0.0)
                 old_remaining = float(lot.quantity_remaining or 0.0)
                 if old_open <= 0 or old_remaining <= 0:
@@ -283,30 +303,35 @@ class SimulationCorporateActionService:
                     account_id=account_id,
                     applied_at=applied_at,
                 )
-                if latest_price > 0 and multiplier > 1.0:
-                    account = await session.get(SimulationAccount, account_id)
-                    if account is None:
-                        continue
-                    delta_qty = old_qty_by_account.get(account_id, 0.0) * (
-                        multiplier - 1.0
+                # 备查行必写（含 amount=0）：一是幂等标记（重跑靠它跳过），
+                # 二是 amount 恒为非负现金口径——合股等 value_delta<=0 时记 0，
+                # 不进现金恒等式（ledger 审计已排除本类型）。
+                account = await session.get(SimulationAccount, account_id)
+                if account is None:
+                    continue
+                delta_qty = old_qty_by_account.get(account_id, 0.0) * (
+                    multiplier - 1.0
+                )
+                value_delta = (
+                    round(delta_qty * latest_price, 4)
+                    if latest_price > 0 and delta_qty > 0
+                    else 0.0
+                )
+                session.add(
+                    SimulationCashLedger(
+                        account_id=account.account_id,
+                        tenant_id=account.tenant_id,
+                        user_id=account.user_id,
+                        event_type="BONUS_SHARE_VALUE",
+                        ref_type="corporate_action",
+                        ref_id=str(action.id),
+                        amount=value_delta,
+                        balance_after=float(account.cash or 0.0),
+                        trade_date=applied_at,
+                        occurred_at=applied_at,
+                        note=f"{normalized_symbol} {normalized_type} value delta",
                     )
-                    value_delta = round(delta_qty * latest_price, 4)
-                    if value_delta > 0:
-                        session.add(
-                            SimulationCashLedger(
-                                account_id=account.account_id,
-                                tenant_id=account.tenant_id,
-                                user_id=account.user_id,
-                                event_type="BONUS_SHARE_VALUE",
-                                ref_type="corporate_action",
-                                ref_id=str(action.id),
-                                amount=value_delta,
-                                balance_after=float(account.cash or 0.0),
-                                trade_date=applied_at,
-                                occurred_at=applied_at,
-                                note=f"{normalized_symbol} {normalized_type} value delta",
-                            )
-                        )
+                )
             cls._merge_action_note(
                 action,
                 f"{normalized_type}_applied_accounts={len(touched_accounts)}",
@@ -320,6 +345,22 @@ class SimulationCorporateActionService:
             for account_id, account_lots in by_account.items():
                 account = await session.get(SimulationAccount, account_id)
                 if account is None:
+                    continue
+                # 重跑幂等：已认购/已记跳过的账户不再重复扣款或重复记跳过
+                # （与分红分支 _ledger_exists 对齐；action 一次性语义不变）。
+                if await cls._ledger_exists(
+                    session,
+                    account_id=account.account_id,
+                    event_type="RIGHTS_SUBSCRIPTION",
+                    ref_id=str(action.id),
+                ):
+                    continue
+                if await cls._ledger_exists(
+                    session,
+                    account_id=account.account_id,
+                    event_type="RIGHTS_SUBSCRIPTION_SKIPPED",
+                    ref_id=str(action.id),
+                ):
                     continue
                 subscribed_qty = sum(
                     max(0.0, float(lot.quantity_remaining or 0.0))
