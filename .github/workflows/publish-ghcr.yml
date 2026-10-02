@@ -1,0 +1,108 @@
+name: Publish OSS image to GHCR
+
+# 只手动触发：本仓库真相源是 Gitea（quantmindai.cn），GitHub 只是镜像。
+# 若挂 push 触发，镜像同步本身就会反复触发重建，白耗 Actions 额度。
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '附加版本标签（如 v1.0.0），留空则只发 latest'
+        required: false
+        type: string
+      torch_device:
+        description: 'torch 形态'
+        required: true
+        default: cpu
+        type: choice
+        options:
+          - cpu
+          - skip
+          - auto
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/quantmind
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Dockerfile.oss 大量使用 --mount=type=cache，必须 BuildKit。
+      # 同时启用 inline cache：把构建缓存随镜像推上去，下次构建可直接复用，
+      # 否则每次都要从头装 apt + Python 依赖，托管 runner 上很容易超时。
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 镜像自带 qm.req.sha / qm.torch.device Label，deploy/full-deploy.sh 靠它们
+      # 判定「复用还是重建」。这里复用仓库里的同一套指纹算法，保证客户拉下来的
+      # 镜像能参与依赖指纹对齐，而不是被当成 unknown 反复重建。
+      - name: Compute dependency fingerprint
+        id: fp
+        env:
+          TORCH_DEVICE: ${{ inputs.torch_device }}
+        run: |
+          sha="$(bash deploy/req-fingerprint.sh)"
+          echo "req_sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "依赖指纹 qm.req.sha=${sha}"
+
+      # 标签单独拼：tag 留空时不能出现空标签，否则 build-push-action 直接报错。
+      - name: Resolve image tags
+        id: tags
+        env:
+          EXTRA_TAG: ${{ inputs.tag }}
+          IMAGE: ${{ env.IMAGE }}
+        run: |
+          {
+            echo "list<<EOF"
+            echo "${IMAGE}:latest"
+            if [[ -n "${EXTRA_TAG}" ]]; then
+              echo "${IMAGE}:${EXTRA_TAG}"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.oss
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.tags.outputs.list }}
+          # 覆盖 Dockerfile.oss 里的国内源默认值：托管 runner 在境外，
+          # 从阿里 apt 源/清华 pip 源拉包要么极慢要么失败。
+          # 这是托管 runner 路线能跑通的前提，不能省。
+          build-args: |
+            TORCH_DEVICE=${{ inputs.torch_device }}
+            QM_REQ_SHA=${{ steps.fp.outputs.req_sha }}
+            TORCH_CPU_INDEX_URL=https://download.pytorch.org/whl/cpu
+            PIP_INDEX_URL=https://pypi.org/simple/
+            PIP_TRUSTED_HOST=pypi.org
+            APT_MIRROR=deb.debian.org
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache,mode=max
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.description=QuantMind OSS Edition (CPU torch) - 量化交易平台开源版
+            org.opencontainers.image.licenses=AGPL-3.0
+
+      - name: Summary
+        run: |
+          echo "### 已发布" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "docker pull ${{ env.IMAGE }}:latest" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "torch: \`${{ inputs.torch_device }}\`  qm.req.sha: \`${{ steps.fp.outputs.req_sha }}\`" >> "$GITHUB_STEP_SUMMARY"
