@@ -36,7 +36,7 @@ QuantBot 是 QuantMind 平台的智能助手，通过自然语言交互帮助用
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| `POST` | `/api/v1/openclaw/chat` | 发送消息（映射到 QuantBot `/api/agent/process`） |
+| `POST` | `/api/v1/openclaw/chat` | 发送消息（SSE 直传上游 QwenPaw `POST /api/console/chat`） |
 | `POST` | `/api/v1/openclaw/files/upload` | 上传当前会话附件 |
 | `GET`  | `/api/v1/openclaw/files?session_id=` | 获取当前会话附件列表 |
 | `GET`  | `/api/v1/openclaw/push-messages?session_id=` | 获取历史兼容轮询消息 |
