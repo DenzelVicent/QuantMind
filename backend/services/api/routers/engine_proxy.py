@@ -138,9 +138,9 @@ async def _proxy(request: Request, user: dict | None = None) -> Response:
 )
 @router.api_route("/api/v1/alpha-agent", methods=["GET", "POST", "OPTIONS"], include_in_schema=False)
 @router.api_route(
-    "/api/v1/trading-agents/{p:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"], include_in_schema=False
+    "/api/v1/reports/{p:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"], include_in_schema=False
 )
-@router.api_route("/api/v1/trading-agents", methods=["GET", "POST", "OPTIONS"], include_in_schema=False)
+@router.api_route("/api/v1/reports", methods=["GET", "POST", "OPTIONS"], include_in_schema=False)
 @router.api_route(
     "/api/v1/quantbot/{p:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"], include_in_schema=False
 )

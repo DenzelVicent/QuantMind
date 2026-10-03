@@ -75,10 +75,9 @@ npm run dashboard:build  # 生产环境构建
   - **QuantDB 远程适配器**：`adapters/quantdb_adapter.py` - 远程 SDK 实时查询（兜底）
   - **Qlib 数据构建器**：`qlib_data_builder.py` - 由 QuantDB parquet 生成 Qlib 二进制缓存（派生产物）
   - **字段路由**：`config/data_sources/field_routing.yaml` - quantdb_local 优先，旧适配器兜底
-- **TradingAgents**：`backend/services/engine/trading_agents/` - 多 Agent A 股投研框架（7 个 AI 分析师、辩论、风险评估）
-  - `runner.py` - TradingAgentsGraph 管线的后台线程运行器
-  - `progress.py` - 线程安全的进度跟踪器（12 阶段）
-  - `routers/trading_agents.py` - REST API（analyze、progress、report、history、download）
+- **报告归档**：`backend/services/engine/routers/report_archive.py` - 分析报告档案库 REST API（列表/预览/上传/移动/删除/文件夹），归档根目录 `QM_REPORT_ARCHIVE_DIR`（默认 `/data/reports/trading_agents`）
+  - 前端：`electron/src/features/report-archive/`（挂在「技能中心」右栏，非独立路由）
+  - 历史：容器内 TradingAgents 多 Agent 图管线（analyze/progress/report/history）已下线；投研报告统一走 `skills/trading-agents` 技能（智能体自主版），落盘后由本模块归档浏览
 - **数据管线**：`backend/scripts/` - 统一的每日数据同步
   - `quantdb_daily_sync.py` - 主同步链路：sync_dataset() → parquet → PG 回填 → Qlib 缓存
   - `daily_data_sync.py` - 全量同步：QuantDB parquet → baostock → akshare → eltdx → PG → Qlib 缓存 → 指标 → parquet
@@ -150,9 +149,7 @@ Electron 前端在本地开发时使用 Vite HMR；修改 `electron/src` 后运�
 - `backend/services/engine/rd_agent/market_adapters/` - 市场适配器注册表（a_share、crypto、hong_kong、us_stock）
 - `backend/services/engine/rd_agent/rd_loop_wrapper.py` - 桥接 RD-Agent 与 QuantMind 的 RDLoop 封装
 - `backend/services/engine/routers/alpha_agent.py` - Alpha Agent API（含 /markets、带 market 参数的 /evolve）
-- `backend/services/engine/routers/trading_agents.py` - TradingAgents REST API（analyze、progress、report、history）
-- `backend/services/engine/trading_agents/runner.py` - TradingAgents 后台线程运行器
-- `backend/services/engine/trading_agents/progress.py` - TradingAgents 进度跟踪器（12 阶段）
+- `backend/services/engine/routers/report_archive.py` - 报告归档 API（files/list、pdf、upload、move、delete、文件夹）
 - `scripts/alpha_agent/run_rd_agent.py` - RD-Agent 多市场运行脚本（子进程入口）
 - `backend/services/engine/data_platform/` - 多市场数据平台
 - `backend/services/engine/data_platform/quantdb_hub.py` - QuantDB 数据中枢（A 股 parquet 读取统一入口）
@@ -165,5 +162,5 @@ Electron 前端在本地开发时使用 Vite HMR；修改 `electron/src` 后运�
 - `backend/services/api/routers/admin/data_platform.py` - 数据平台管理端点（同步、parquet、健康）
 - `backend/services/api/routers/news.py` - 新闻代理路由
 - `backend/services/api/routers/market_kline.py` - K 线行情路由
-- `electron/src/features/trading-agents/` - TradingAgents 前端模块（页面、组件、服务）
+- `electron/src/features/report-archive/` - 报告档案前端模块（ReportManagerPage + PdfPreview，挂在技能中心右栏）
 - `docker-compose.yml` - 本地部署配置

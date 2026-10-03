@@ -448,12 +448,12 @@ except ImportError as e:
     logger.error(f"❌ Failed to load AlphaAgent routers: {e}")
 
 try:
-    from backend.services.engine.routers.trading_agents import router as trading_agents_router
+    from backend.services.engine.routers.report_archive import router as report_archive_router
 
-    app.include_router(trading_agents_router)
-    logger.info("✅ TradingAgents routers loaded")
+    app.include_router(report_archive_router)
+    logger.info("✅ ReportArchive routers loaded")
 except ImportError as e:
-    logger.error(f"❌ Failed to load TradingAgents routers: {e}")
+    logger.error(f"❌ Failed to load ReportArchive routers: {e}")
 
 try:
     from backend.services.engine.routers.quantbot_router import router as quantbot_router

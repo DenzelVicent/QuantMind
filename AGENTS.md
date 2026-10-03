@@ -53,6 +53,8 @@ npm run dashboard:build  # 生产环境构建
 - **共享模块**：`backend/shared/` 存放跨服务代码（DB 管理器、Redis 客户端、配置、日志）
 - **瞬时时间（成交/委托）**：`sim_trades.executed_at` 等瞬时列一律 `TIMESTAMPTZ` + aware UTC。写入走 `backend/shared/utc_datetime.py` 的 `utc_now()` / `UtcDateTime`，JSON 输出带 `Z`。禁止再把 naive UTC 和 Asia/Shanghai 墙钟混用，否则 asyncpg 会让整笔成交回滚。存量库由 `backend/shared/db_init.sql` 第 66 节（存量库收敛，已合并原 `data/upgrade_v1.0.1 ~ v1.0.8`）对齐。
 - **策略存储**：`backend/shared/strategy_storage.py` 是所有策略增删改查的唯一入口
+- **报告归档（技能中心「股票报告」页）**：`backend/services/engine/routers/report_archive.py` 是报告文件浏览/上传/移动/删除的唯一入口（前缀 `/api/v1/reports`，经 `engine_proxy.py` 白名单转发到 engine 8001）。归档根目录 `QM_REPORT_ARCHIVE_DIR`（默认 `/data/reports/trading_agents`），结构 `{根}/{市场中文名}/{股票名}/{股票名}{代码}_{日期}_{报告类型}.{md,pdf}`。各 QuantBot 技能落盘后由该模块统一呈现。
+- **投研报告产出方式**：容器内 TradingAgents 多 Agent 图管线（analyze/progress/report/history）**已下线**，禁止再新接；投研报告一律走 `skills/trading-agents`（智能体自主版，任意大模型可跑）等技能包生成 md+PDF 后落盘。
 - **Celery worker 必须唯一**：`SERVICE_MODE=all` 下 `main_oss.py` 默认**不启动**内嵌 worker（需 `EMBEDDED_CELERY_WORKER=true`），消费队列的只有 `celery-worker` 容器。重复 worker 会瓜分 `qlib_backtest_srv` 队列消息，表现为定时任务随机「不执行」；排查看 `redis-cli client list | grep cmd=brpop` 应只有 1 个。
 - **市场数据同步不内置默认调度**：是否开启、何时触发一律以用户在前端「同步调度」保存的 Redis 配置为准（`quantmind:sync_schedule:{market}`），未配置时 5 个市场全部 `enabled=false`；`MARKET_SUGGESTED_TIMES` 只是前端时间预填建议值（次日 00:00 以后错峰），不参与触发。详见 `backend/services/engine/README.md` →「定时调度与市场数据同步」。
 - **代码版本落后提示（硬性规则）**：管理后台右上角「落后 N 个提交」只允许走下面这条链路。禁止改回 Gitee/GitHub compare 接口，禁止用两边 `git rev-list --count` 相减，禁止把计数文件提交进 `master`（会每记一次就多一个提交，而且文件内容永远比 HEAD 少 1）。
@@ -131,6 +133,7 @@ ssh ${SSH_TARGET} "cd ${PROJECT_DIR} && git pull && docker compose restart quant
 - `backend/run_tests.py` - 多模式测试运行器
 - `backend/shared/` - 跨服务共享模块
 - `backend/shared/version.py` - 部署版本读取与 Gitea release-index 落后提交对比（唯一入口）
+- `backend/services/engine/routers/report_archive.py` - 报告归档 API（技能中心「股票报告」页后端）
 - `scripts/publish_release_index.py` - 维护端发布 `release-index` 分支（推送 master 后执行）
 - `docker-compose.yml` - 本地部署配置
 - `scripts/quantbot_init.sh` - QwenPaw 技能/人格一键初始化（技能更新唯一入口）

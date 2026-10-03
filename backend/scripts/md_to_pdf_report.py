@@ -1,4 +1,4 @@
-"""Convert TradingAgents markdown report to a styled Chinese PDF (研报级设计).
+"""Convert a markdown report to a styled Chinese PDF (研报级设计).
 
 设计规范（对应 SKILL.md §7.4）：
 - 封面页：深海军蓝底 + 金色双线 + 白字标题 + 报告日期/数据截至 + 免责声明

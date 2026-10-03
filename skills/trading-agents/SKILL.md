@@ -277,7 +277,7 @@ print(df.columns.tolist())   # 找 name 列
 ```bash
 ls -la "/data/reports/trading_agents/A股市场/{股票名}/" | grep {ticker}
 # 或调用列表接口确认（报告档案页同源）:
-curl -s "$BASE/api/v1/trading-agents/files/list" | python3 -m json.tool | grep {ticker}
+curl -s "$BASE/api/v1/reports/files/list" | python3 -m json.tool | grep {ticker}
 ```
 
 ## 八、告知用户（收尾话术）
@@ -288,46 +288,35 @@ curl -s "$BASE/api/v1/trading-agents/files/list" | python3 -m json.tool | grep {
 3. **模型推理分数印证**（当前分数/趋势/排名）
 4. **"报告已导出 PDF，请到「股票报告」页查看"** ← 用户要求：最后提示导出 PDF
 
-## 九、股票报告页（文件管理 API）
+## 九、股票报告页（报告归档 API）
 
 ```bash
 # 列出所有报告（市场文件夹 → 股票名子文件夹 → 文件，二级结构）
-curl -s -H "$AUTH" "$BASE/api/v1/trading-agents/files/list"
+curl -s -H "$AUTH" "$BASE/api/v1/reports/files/list"
 # 返回 folders[]: {name: 市场名, files[]: 市场目录直属文件, subfolders[]: {name: 股票名, files[]}}
 
-# PDF 预览（浏览器 iframe 内联）: $BASE/api/v1/trading-agents/files/pdf/{filename}
+# PDF 预览（浏览器 iframe 内联）: $BASE/api/v1/reports/files/pdf/{filename}
 # filename 只需文件名（如 贵州茅台600519_2026-08-15_投研分析报告.pdf），
 # 后端递归搜索任意层级，同名取修改时间最新
 
+# 上传 PDF（可选，multipart：file + folder）
+curl -s -X POST -H "$AUTH" "$BASE/api/v1/reports/files/upload" \
+  -F "file=@report.pdf" -F "folder=A股市场/贵州茅台"
+
 # 删除文件（可多选，递归搜索任意层级）
-curl -s -X POST -H "$AUTH" -H "$CT" "$BASE/api/v1/trading-agents/files/delete" \
+curl -s -X POST -H "$AUTH" -H "$CT" "$BASE/api/v1/reports/files/delete" \
   -d '{"files":["贵州茅台600519_2026-08-15_投研分析报告.pdf"]}'
 
 # 新建文件夹 / 移动文件 / 删除文件夹（folder 支持「市场/股票名」两级路径）
-curl -s -X POST -H "$AUTH" -H "$CT" "$BASE/api/v1/trading-agents/files/create-folder" -d '{"folder":"重点观察"}'
-curl -s -X POST -H "$AUTH" -H "$CT" "$BASE/api/v1/trading-agents/files/move" \
+curl -s -X POST -H "$AUTH" -H "$CT" "$BASE/api/v1/reports/files/create-folder" -d '{"folder":"重点观察"}'
+curl -s -X POST -H "$AUTH" -H "$CT" "$BASE/api/v1/reports/files/move" \
   -d '{"files":["贵州茅台600519_2026-08-15_投研分析报告.pdf"],"target_folder":"A股市场/贵州茅台"}'
-curl -s -X POST -H "$AUTH" -H "$CT" "$BASE/api/v1/trading-agents/files/delete-folder" -d '{"folder":"重点观察"}'
+curl -s -X POST -H "$AUTH" -H "$CT" "$BASE/api/v1/reports/files/delete-folder" -d '{"folder":"重点观察"}'
 ```
 
-## 十、可选的容器投研管线（备用模式）
+> 后端实现：`backend/services/engine/routers/report_archive.py`；归档根目录由 `QM_REPORT_ARCHIVE_DIR` 指定（默认 `/data/reports/trading_agents`）。
 
-> 平台还有一条**容器内 TradingAgents 管线**（7 AI 分析师 → 质量门控 → 多空辩论 → 风控 → 最终决策），但**依赖容器内 LLM Key 配置**（minimax/openai 等），Key 没配好会 401。
-> 管线可正常运行时，分析完成**自动导出** md+PDF（后端 report_exporter.py 已内置）。
-
-```bash
-curl -s -X POST -H "$AUTH" -H "$CT" "$BASE/api/v1/trading-agents/analyze" \
-  -d '{"ticker":"600519","trade_date":"2026-08-15","market":"CN"}'
-# → analysis_id，然后循环:
-curl -s -H "$AUTH" "$BASE/api/v1/trading-agents/progress/{analysis_id}"   # 直到 is_complete
-curl -s -H "$AUTH" "$BASE/api/v1/trading-agents/report/{analysis_id}"     # 拿 stage_reports
-```
-
-**智能体选择模式**：
-- 默认用**自主模式**（本技能第 2~8 节）—— 任何大模型都能跑，不依赖管线 Key
-- 管线 Key 可用且用户明确要"7 分析师全管线"时，用备用模式，取 stage_reports 后仍按本技能第 6 节版式组装 md + 导出 PDF
-
-## 十一、相关技能
+## 十、相关技能
 
 - **[[stock-market-analysis]]** — 量化因子深度分析（371 字段 + 风险评分 + 数据导出）
 - **[[batch-inference-analysis]]** — 模型推理信号选股
@@ -335,7 +324,7 @@ curl -s -H "$AUTH" "$BASE/api/v1/trading-agents/report/{analysis_id}"     # 拿 
 - **[[quantdb-sdk]]** — QuantDB 数据查询（28 数据集）
 - **[[simulation-trading]]** — 分析结论落地模拟/实盘交易
 
-## 十二、常见问题
+## 十一、常见问题
 
 | 现象 | 处理 |
 |---|---|
@@ -343,6 +332,6 @@ curl -s -H "$AUTH" "$BASE/api/v1/trading-agents/report/{analysis_id}"     # 拿 
 | 新闻为空 | 报告标注数据缺失 + 提醒用户加 RSS 新闻源（后台 RSS 管理/Huntly） |
 | 股票名查不到 | 标题回退纯代码；US/HK 查 sector parquet 的 name 列 |
 | PDF 转不出来 | 确认容器 `docker exec quantmind python -c "import reportlab"`；字体回退链见 7.2（WQY 在宿主机 `docker/training/fonts/`，bind mount 进容器 `/app/docker/training/fonts/`） |
-| 股票报告页找不到报告 | 目录名必须用 **`A股市场`（无空格）**，与后端 `report_exporter.py::_MARKET_NAMES` 一致；新结构为「市场文件夹/股票名文件夹/{股票名}{代码}_{日期}_投研分析报告.{md,pdf}」 |
+| 股票报告页找不到报告 | 目录名必须用 **`A股市场`（无空格）**，与前端档案页市场分组一致；结构为「市场文件夹/股票名文件夹/{股票名}{代码}_{日期}_{报告类型}.{md,pdf}」，归档根目录 = `QM_REPORT_ARCHIVE_DIR`（默认 `/data/reports/trading_agents`） |
 | 报告目录写不进 | 宿主机目录 owner 是容器内 root：md 先写 `/tmp` 再 `docker cp` 进容器，或用 `docker exec quantmind python` 直接落盘 |
 | 推理分数接口 404 | 该股近期无推理记录，报告中注明"无最近推理数据" |

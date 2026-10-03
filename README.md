@@ -36,7 +36,7 @@
 
 ## 项目简介
 
-**QuantMind（量化大脑）** 是面向个人量化研究者、投研团队与专业机构的一体化 AI 原生量化交易平台。深度集成微软 **Qlib** 量化框架、**RD-Agent** 研发智能体与 **TradingAgents** 多 Agent 投研体系，全面打通量化全流程闭环：
+**QuantMind（量化大脑）** 是面向个人量化研究者、投研团队与专业机构的一体化 AI 原生量化交易平台。深度集成微软 **Qlib** 量化框架、**RD-Agent** 研发智能体与**多 Agent 投研技能体系**，全面打通量化全流程闭环：
 
 ```text
 数据底座 -> 因子挖掘 -> 模型训练 -> 批量推理 -> 组合回测 -> 模拟交易 -> 生产监控
@@ -307,8 +307,6 @@ quantmind/
 * [Microsoft Qlib](https://github.com/microsoft/qlib) — 微软开源 AI 量化投资平台
 
 * [Microsoft RD-Agent](https://github.com/microsoft/RD-Agent) — 微软研发智能体框架
-
-* [TradingAgents-Astock](https://github.com/simonlin1212/TradingAgents-astock) — 多 Agent A 股投研框架
 
 * [LightGBM](https://github.com/microsoft/LightGBM) / [CatBoost](https://github.com/catboost/catboost) / [XGBoost](https://github.com/dmlc/xgboost) — 经典梯度提升树算法
 

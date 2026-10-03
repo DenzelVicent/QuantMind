@@ -85,7 +85,6 @@ class TestAdminRouterImports:
         "backend.services.api.routers.admin.quantdb_console",
         "backend.services.api.routers.admin.strategy_templates",
         "backend.services.api.routers.admin.alpha_factor_pipeline",
-        "backend.services.api.routers.admin.trading_agents",
     ]
 
     @pytest.mark.parametrize("module_name", ADMIN_ROUTER_MODULES)

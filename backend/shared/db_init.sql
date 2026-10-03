@@ -460,29 +460,6 @@ CREATE TABLE IF NOT EXISTS qm_research_candidate_snapshot (
 );
 
 -- ========================
--- 16. QM_TRADING_AGENTS_HISTORY
--- ========================
-CREATE TABLE IF NOT EXISTS qm_trading_agents_history (
-    analysis_id     TEXT PRIMARY KEY,
-    ticker          TEXT,
-    trade_date      TEXT,
-    signal          TEXT,
-    llm_provider    TEXT,
-    deep_think_llm  TEXT,
-    quick_think_llm TEXT,
-    stage_reports   JSONB,
-    final_state     JSONB,
-    stats           JSONB,
-    elapsed_seconds DOUBLE PRECISION,
-    error           TEXT,
-    created_at      TIMESTAMPTZ DEFAULT NOW(),
-    updated_at      TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_tah_ticker ON qm_trading_agents_history (ticker);
-CREATE INDEX IF NOT EXISTS idx_tah_trade_date ON qm_trading_agents_history (trade_date);
-
--- ========================
 -- 17. QM_USER_WATCHLIST
 -- ========================
 CREATE TABLE IF NOT EXISTS qm_user_watchlist (

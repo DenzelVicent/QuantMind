@@ -9,13 +9,13 @@ import { Modal } from 'antd';
 import { Sparkles } from 'lucide-react';
 import { PAGE_LAYOUT } from '../../../config/pageLayout';
 import PromptsLibrary from '../components/PromptsLibrary';
-import ReportManagerPage from '../../trading-agents/pages/ReportManagerPage';
-import PdfPreview from '../../trading-agents/components/PdfPreview';
+import ReportManagerPage from '../../report-archive/pages/ReportManagerPage';
+import PdfPreview from '../../report-archive/components/PdfPreview';
 import { PROMPTS } from '../prompts.generated';
 import { SERVICE_URLS } from '../../../config/services';
 
 // 用前端配置的服务器地址（桌面端设置 / 环境变量），不走 vite 代理，随用户配置 IP 变化
-const ENGINE_BASE = (): string => `${SERVICE_URLS.API_GATEWAY}/api/v1/trading-agents`;
+const ENGINE_BASE = (): string => `${SERVICE_URLS.API_GATEWAY}/api/v1/reports`;
 
 const SkillsCenterPage: React.FC = () => {
   const [previewFile, setPreviewFile] = useState<string | null>(null);

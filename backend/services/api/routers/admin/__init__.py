@@ -15,7 +15,6 @@ from backend.services.api.user_app.middleware.auth import require_admin
 from .strategy_templates import router as strategy_templates_router
 from .users import router as users_router
 from .alpha_factor_pipeline import router as alpha_factor_pipeline_router
-from .trading_agents import router as trading_agents_router
 from .sync_schedule import router as sync_schedule_router
 from .quantdb_factor_catalog import router as quantdb_factor_catalog_router
 from .qlib_console import router as qlib_console_router
@@ -71,9 +70,6 @@ admin_router.include_router(
 )
 admin_router.include_router(
     alpha_factor_pipeline_router, prefix="/alpha-factors", tags=["Admin-AlphaFactorPipeline"]
-)
-admin_router.include_router(
-    trading_agents_router, prefix="/trading-agents", tags=["Admin-TradingAgents"]
 )
 admin_router.include_router(
     sync_schedule_router, prefix="/data-platform", tags=["Admin-SyncSchedule"]

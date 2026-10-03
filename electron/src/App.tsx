@@ -224,8 +224,6 @@ export default function App() {
       dispatch(setCurrentTab('stock-terminal' as DashboardTab));
     } else if (location.pathname.startsWith('/research')) {
       dispatch(setCurrentTab('research' as DashboardTab));
-    } else if (location.pathname.startsWith('/trading-agents')) {
-      dispatch(setCurrentTab('skills' as DashboardTab));
     } else if (location.pathname.startsWith('/skills')) {
       dispatch(setCurrentTab('skills' as DashboardTab));
     } else if (location.pathname.startsWith('/trading')) {
@@ -591,7 +589,6 @@ export default function App() {
                       </ProtectedRoute>
                     }
                   />
-                  <Route path="/trading-agents" element={<Navigate to="/skills" replace />} />
                   <Route
                     path="/admin"
                     element={

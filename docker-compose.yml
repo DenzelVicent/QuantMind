@@ -195,9 +195,10 @@ services:
       - QLIB_BACKTEST_RESULT_DIR=/data/backtest_results
       - QLIB_BACKTEST_KERNELS=1
 
-      # 统一报告根目录（技能中心）：复盘/市场分析/个股研究/股票池/投研报告
+      # 统一报告根目录（技能中心）：复盘/市场分析/个股研究/股票池/报告归档
       - QM_REPORTS_DIR=/data/reports
-      - TRADING_AGENTS_RESULTS_DIR=/data/reports/trading_agents
+      # 报告归档库根目录（前端「股票报告」页 + QuantBot 技能落盘约定）
+      - QM_REPORT_ARCHIVE_DIR=/data/reports/trading_agents
 
       # 本地 Docker 训练编排（模型训练）
       - INTERNAL_CALL_SECRET=${INTERNAL_CALL_SECRET:-changeme-internal-secret}
@@ -343,8 +344,6 @@ services:
       - ./scripts:/app/scripts
       # AlphaAgent 包源码（容器内 Python 通过 PYTHONPATH=/app 直接 import）
       - ./alphaagent:/app/alphaagent
-      # TradingAgents-Astock 多Agent投研框架
-      - ./TradingAgents-astock:/app/TradingAgents-astock
       # 训练脚本（用于 Docker-in-Docker 启动训练容器）
       - ./docker/training:/app/docker/training
       # 策略模板
@@ -360,10 +359,6 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # QwenPaw 共享文件目录
       - qwenpaw-shared:/qwenpaw-shared
-    # TradingAgents 源码已随镜像提供；将其加入模块路径，避免每次启动
-    # 都访问 PyPI 安装依赖（离线/受限网络会一直卡在此步骤）。
-    command: >
-      sh -c "PYTHONPATH=/app/TradingAgents-astock:$$PYTHONPATH python backend/main_oss.py"
     # deploy:
     #   resources:
     #     reservations:
@@ -422,7 +417,7 @@ services:
 
       # 统一报告根目录（技能中心）：复盘/市场分析/个股研究/股票池/投研报告
       - QM_REPORTS_DIR=/data/reports
-      - TRADING_AGENTS_RESULTS_DIR=/data/reports/trading_agents
+      - QM_REPORT_ARCHIVE_DIR=/data/reports/trading_agents
 
       # 本地 Docker 训练编排（模型训练）
       - INTERNAL_CALL_SECRET=${INTERNAL_CALL_SECRET:-changeme-internal-secret}
