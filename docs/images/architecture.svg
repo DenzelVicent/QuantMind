@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 900" font-family="-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 780" font-family="-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif">
   <defs>
     <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" stop-color="#ffffff"/>
@@ -11,74 +11,46 @@
     <filter id="softShadow" x="-5%" y="-5%" width="110%" height="115%">
       <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.04"/>
     </filter>
-    <filter id="cardHover" x="-5%" y="-5%" width="110%" height="115%">
-      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-opacity="0.06"/>
-    </filter>
-    <marker id="dot" markerWidth="6" markerHeight="6" refX="3" refY="3">
-      <circle cx="3" cy="3" r="2" fill="#94a3b8"/>
-    </marker>
     <marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
       <path d="M0,1 L5,3 L0,5" fill="none" stroke="#94a3b8" stroke-width="1.2" stroke-linecap="round"/>
     </marker>
-    <linearGradient id="cardIM" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#065f46"/>
-      <stop offset="100%" stop-color="#047857"/>
-    </linearGradient>
-    <marker id="arrowIM" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-      <path d="M0,1 L5,3 L0,5" fill="none" stroke="#059669" stroke-width="1.2" stroke-linecap="round"/>
-    </marker>
   </defs>
 
-  <rect width="960" height="900" fill="url(#bgGrad)" rx="14"/>
-  <rect x="1" y="1" width="958" height="898" fill="none" stroke="#e2e8f0" stroke-width="1.2" rx="14"/>
+  <rect width="960" height="780" fill="url(#bgGrad)" rx="14"/>
+  <rect x="1" y="1" width="958" height="778" fill="none" stroke="#e2e8f0" stroke-width="1.2" rx="14"/>
 
-  <!-- 0. IM 远程指令入口 -->
-  <g transform="translate(40, 20)" filter="url(#cardHover)">
-    <rect width="880" height="62" rx="8" fill="url(#cardIM)"/>
-    <text x="440" y="25" text-anchor="middle" font-size="13" font-weight="700" fill="#ffffff" letter-spacing="0.5">📱 微信 · QQ · 飞书 · 钉钉 等 IM 远程下达指令</text>
-    <text x="440" y="43" text-anchor="middle" font-size="11" fill="#a7f3d0">17 类渠道适配 + 到点主动推送 → 任务在服务器执行，结果 / 研报 PDF 回推聊天窗口</text>
-    <text x="440" y="57" text-anchor="middle" font-size="9.5" fill="#6ee7b7">手机端零客户端：发一句话即可取数 / 选股 / 回测 / 复盘 / 下单</text>
-  </g>
-
-  <path d="M 480,82 L 480,106" fill="none" stroke="#059669" stroke-width="1.4" marker-end="url(#arrowIM)"/>
-  <path d="M 508,106 L 508,82" fill="none" stroke="#059669" stroke-width="1.2" stroke-dasharray="3,3" marker-end="url(#arrowIM)"/>
-  <rect x="392" y="86" width="176" height="16" rx="4" fill="#ecfdf5" stroke="#a7f3d0" stroke-width="0.8"/>
-  <text x="480" y="98" text-anchor="middle" font-size="9" font-weight="600" fill="#047857">IM ⇄ QuantBot (:8088) 双向指令 / 推送</text>
-
-  <path d="M 480,106 L 480,132" fill="none" stroke="#059669" stroke-width="1.2" stroke-dasharray="3,3" marker-end="url(#arrowIM)"/>
-
-  <!-- 1. CLIENT -->
-  <g transform="translate(40, 132)" filter="url(#cardHover)">
+  <!-- 1. 统一工作台 -->
+  <g transform="translate(40, 20)">
     <rect width="880" height="58" rx="8" fill="url(#cardClient)"/>
     <text x="440" y="26" text-anchor="middle" font-size="14" font-weight="700" fill="#ffffff" letter-spacing="0.5">QuantMind 统一工作台  (:3000)</text>
-    <text x="440" y="44" text-anchor="middle" font-size="11" fill="#94a3b8">Electron 桌面端  ·  Web 浏览器端  (React 18 + TypeScript + Vite + HMR)</text>
+    <text x="440" y="44" text-anchor="middle" font-size="11" fill="#94a3b8">Electron 桌面端 · Web 浏览器端（React 18 + TypeScript + Vite）</text>
   </g>
 
-  <line x1="480" y1="142" x2="480" y2="166" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3,3" marker-start="url(#dot)" marker-end="url(#arrow)"/>
-  <rect x="418" y="145" width="124" height="16" rx="4" fill="#f1f5f9"/>
-  <text x="480" y="157" text-anchor="middle" font-size="9" font-weight="600" fill="#64748b">REST / WebSocket → :8000</text>
+  <line x1="480" y1="78" x2="480" y2="102" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3,3" marker-end="url(#arrow)"/>
+  <rect x="418" y="81" width="124" height="16" rx="4" fill="#f1f5f9"/>
+  <text x="480" y="93" text-anchor="middle" font-size="9" font-weight="600" fill="#64748b">REST / WebSocket → :8000</text>
 
-  <!-- 2. GATEWAY -->
-  <g transform="translate(40, 170)" filter="url(#softShadow)">
+  <!-- 2. API Gateway -->
+  <g transform="translate(40, 106)" filter="url(#softShadow)">
     <rect width="880" height="72" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.2"/>
     <text x="440" y="24" text-anchor="middle" font-size="13" font-weight="700" fill="#0f172a">API Gateway 网关服务  (:8000)</text>
     <text x="440" y="42" text-anchor="middle" font-size="11" fill="#334155">auth / user_app / community / news / market_analysis / risk_scoring / system</text>
-    <text x="440" y="58" text-anchor="middle" font-size="11" fill="#64748b">7 路代理：engine · trade · stream/ws · data-gateway · qwenpaw · hub · ai_ide（前端只打 8000）</text>
+    <text x="440" y="58" text-anchor="middle" font-size="11" fill="#64748b">7 路代理：engine · trade · stream/ws · data-gateway · qwenpaw · hub · ai_ide</text>
   </g>
 
-  <path d="M 200,242 L 200,266" fill="none" stroke="#cbd5e1" stroke-width="1.2" marker-end="url(#arrow)"/>
-  <path d="M 480,242 L 480,266" fill="none" stroke="#cbd5e1" stroke-width="1.2" marker-end="url(#arrow)"/>
-  <path d="M 760,242 L 760,266" fill="none" stroke="#cbd5e1" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <path d="M 200,178 L 200,202" fill="none" stroke="#cbd5e1" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <path d="M 480,178 L 480,202" fill="none" stroke="#cbd5e1" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <path d="M 760,178 L 760,202" fill="none" stroke="#cbd5e1" stroke-width="1.2" marker-end="url(#arrow)"/>
 
-  <!-- single-image note -->
-  <g transform="translate(40, 270)">
-    <rect width="880" height="28" rx="6" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1"/>
-    <text x="440" y="18" text-anchor="middle" font-size="11" font-weight="600" fill="#3730a3">单镜像多进程：quantmind-oss:latest 内由 main_oss.py spawn 拉起 Engine / Trade / Stream（看门狗自愈）</text>
+  <!-- 单镜像说明 -->
+  <g transform="translate(40, 202)">
+    <rect width="880" height="28" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+    <text x="440" y="18" text-anchor="middle" font-size="11" font-weight="600" fill="#475569">单镜像多进程：main_oss.py 内 spawn 拉起 Engine / Trade / Stream（看门狗自愈）</text>
   </g>
 
-  <!-- 3. CORE SERVICES -->
-  <g transform="translate(40, 306)" filter="url(#softShadow)">
-    <rect width="283" height="178" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.2"/>
+  <!-- 3. 核心服务 -->
+  <g transform="translate(40, 236)" filter="url(#softShadow)">
+    <rect width="283" height="170" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.2"/>
     <rect x="0" y="0" width="283" height="34" rx="8" fill="#f8fafc"/>
     <line x1="0" y1="34" x2="283" y2="34" stroke="#f1f5f9" stroke-width="1"/>
     <text x="141" y="22" text-anchor="middle" font-size="12" font-weight="700" fill="#1e293b">Engine 引擎服务  (:8001)</text>
@@ -91,8 +63,8 @@
     <text x="141" y="159" text-anchor="middle" font-size="10" fill="#94a3b8">含 TDX 选股推送（推理完成侧）</text>
   </g>
 
-  <g transform="translate(338, 306)" filter="url(#softShadow)">
-    <rect width="284" height="178" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.2"/>
+  <g transform="translate(338, 236)" filter="url(#softShadow)">
+    <rect width="284" height="170" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.2"/>
     <rect x="0" y="0" width="284" height="34" rx="8" fill="#f8fafc"/>
     <line x1="0" y1="34" x2="284" y2="34" stroke="#f1f5f9" stroke-width="1"/>
     <text x="142" y="22" text-anchor="middle" font-size="12" font-weight="700" fill="#1e293b">Trade 交易服务  (:8002)</text>
@@ -105,8 +77,8 @@
     <text x="142" y="159" text-anchor="middle" font-size="10" fill="#94a3b8">UTC 落库：sim_trades 全 TIMESTAMPTZ</text>
   </g>
 
-  <g transform="translate(637, 306)" filter="url(#softShadow)">
-    <rect width="283" height="178" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.2"/>
+  <g transform="translate(637, 236)" filter="url(#softShadow)">
+    <rect width="283" height="170" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.2"/>
     <rect x="0" y="0" width="283" height="34" rx="8" fill="#f8fafc"/>
     <line x1="0" y1="34" x2="283" y2="34" stroke="#f1f5f9" stroke-width="1"/>
     <text x="141" y="22" text-anchor="middle" font-size="12" font-weight="700" fill="#1e293b">Stream 行情服务  (:8003)</text>
@@ -119,14 +91,16 @@
     <text x="141" y="159" text-anchor="middle" font-size="10" fill="#94a3b8">WS 回推前端 K 线 · 持仓 · 任务进度</text>
   </g>
 
-  <!-- service mesh note -->
-  <g transform="translate(40, 492)">
+  <!-- 服务间直连说明 -->
+  <g transform="translate(40, 412)">
     <rect width="880" height="26" rx="6" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1"/>
     <text x="440" y="17" text-anchor="middle" font-size="10.5" fill="#64748b">服务间直连（容器内 127.0.0.1）：ENGINE / TRADE / STREAM / MARKET_DATA / STRATEGY _SERVICE_URL · StockCodeUtil 跨层转换</text>
   </g>
 
-  <!-- 4. ASYNC -->
-  <g transform="translate(40, 526)" filter="url(#softShadow)">
+  <path d="M 480,438 L 480,448" fill="none" stroke="#cbd5e1" stroke-width="1.2" marker-end="url(#arrow)"/>
+
+  <!-- 4. 异步任务 -->
+  <g transform="translate(40, 448)" filter="url(#softShadow)">
     <rect width="880" height="58" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.2"/>
     <g transform="translate(150, 14)">
       <text x="0" y="13" text-anchor="middle" font-size="12" font-weight="700" fill="#0f172a">celery-worker（唯一消费者）</text>
@@ -144,13 +118,10 @@
     </g>
   </g>
 
-  <path d="M 200,484 L 200,526" fill="none" stroke="#cbd5e1" stroke-width="1.2" marker-end="url(#arrow)"/>
-  <path d="M 480,484 L 480,526" fill="none" stroke="#cbd5e1" stroke-width="1.2" marker-end="url(#arrow)"/>
-  <path d="M 760,484 L 760,526" fill="none" stroke="#cbd5e1" stroke-width="1.2" marker-end="url(#arrow)"/>
-  <path d="M 480,584 L 480,612" fill="none" stroke="#cbd5e1" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <path d="M 480,506 L 480,516" fill="none" stroke="#cbd5e1" stroke-width="1.2" marker-end="url(#arrow)"/>
 
-  <!-- 5. DATA -->
-  <g transform="translate(40, 612)" filter="url(#softShadow)">
+  <!-- 5. 数据层 -->
+  <g transform="translate(40, 516)" filter="url(#softShadow)">
     <rect width="880" height="88" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.2"/>
     <g transform="translate(145, 14)">
       <text x="0" y="14" text-anchor="middle" font-size="12" font-weight="700" fill="#0f172a">PostgreSQL :5432</text>
@@ -172,20 +143,20 @@
     </g>
   </g>
 
-  <!-- 6. ECOSYSTEM -->
-  <g transform="translate(40, 716)">
+  <!-- 6. 生态 -->
+  <g transform="translate(40, 610)">
     <rect x="0" y="0" width="283" height="44" rx="6" fill="#ffffff" stroke="#e2e8f0" filter="url(#softShadow)"/>
     <text x="141" y="18" text-anchor="middle" font-size="11" font-weight="600" fill="#334155">Huntly :8090 + RSSHub :1200</text>
     <text x="141" y="33" text-anchor="middle" font-size="10" fill="#64748b">7×24 资讯 · enrich 打标</text>
-    <rect x="298" y="0" width="284" height="44" rx="6" fill="#ecfdf5" stroke="#a7f3d0" stroke-width="1.2" filter="url(#softShadow)"/>
-    <text x="440" y="18" text-anchor="middle" font-size="11" font-weight="700" fill="#047857">QwenPaw QuantBot :8088 · IM 远程指令</text>
-    <text x="440" y="33" text-anchor="middle" font-size="10" fill="#059669">技能池 · 微信/QQ/飞书 · 定时推送</text>
+    <rect x="298" y="0" width="284" height="44" rx="6" fill="#ffffff" stroke="#e2e8f0" filter="url(#softShadow)"/>
+    <text x="440" y="18" text-anchor="middle" font-size="11" font-weight="600" fill="#334155">QwenPaw QuantBot :8088 · IM 远程指令</text>
+    <text x="440" y="33" text-anchor="middle" font-size="10" fill="#64748b">技能池 · 微信/QQ/飞书 · 定时推送</text>
     <rect x="597" y="0" width="283" height="44" rx="6" fill="#ffffff" stroke="#e2e8f0" filter="url(#softShadow)"/>
     <text x="738" y="18" text-anchor="middle" font-size="11" font-weight="600" fill="#334155">券商通道：TDX 桥 / IB</text>
     <text x="738" y="33" text-anchor="middle" font-size="10" fill="#64748b">IB :4001/4002</text>
   </g>
 
-  <g transform="translate(40, 768)">
+  <g transform="translate(40, 662)">
     <rect x="0" y="0" width="283" height="44" rx="6" fill="#ffffff" stroke="#e2e8f0" filter="url(#softShadow)"/>
     <text x="141" y="18" text-anchor="middle" font-size="11" font-weight="600" fill="#334155">市场：A股 / 港股 / 美股 / 期货</text>
     <text x="141" y="33" text-anchor="middle" font-size="10" fill="#64748b">加密默认关闭（ENABLE_CRYPTO=false）</text>
@@ -197,6 +168,6 @@
     <text x="738" y="33" text-anchor="middle" font-size="10" fill="#64748b">bind mount 热更新 · 改依赖才重 build</text>
   </g>
 
-  <text x="480" y="840" text-anchor="middle" font-size="10" fill="#94a3b8">约束：celery 消费者唯一（brpop 仅 1 个）· 同步调度以 Redis quantmind:sync_schedule 为准 · 前缀式 SH600036 对外 / 后缀式 600036.SH 对 Qlib</text>
-  <text x="480" y="856" text-anchor="middle" font-size="10" fill="#94a3b8">数据闭环：数据底座 → 因子挖掘 → 训练 → 推理 → 回测 → 模拟交易 → 监控 · 仅供研究，不构成投资建议</text>
+  <text x="480" y="732" text-anchor="middle" font-size="10" fill="#94a3b8">约束：celery 消费者唯一（brpop 仅 1 个）· 同步调度以 Redis quantmind:sync_schedule 为准 · 前缀式 SH600036 对外 / 后缀式 600036.SH 对 Qlib</text>
+  <text x="480" y="748" text-anchor="middle" font-size="10" fill="#94a3b8">数据闭环：数据底座 → 因子挖掘 → 训练 → 推理 → 回测 → 模拟交易 → 监控 · 仅供研究，不构成投资建议</text>
 </svg>
