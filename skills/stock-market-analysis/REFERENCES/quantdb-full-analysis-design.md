@@ -176,7 +176,7 @@ for f in L2_REPORT_FACTORS:               # 报告 26 个确认因子
 13. **风险提示**：风险评分卡 veto 项 + 各层风险点
 14. **操作建议**：分持仓状态 + 触发条件（价位/信号阈值/L4b 反转前兆）
 
-**报告落盘（必做）**：`db/trading_agents_results/{市场名}/{股票名}/{股票名}{代码}_{日期}_投研分析报告.{md,pdf}`；宿主机目录 owner 是容器内 root → 必须 `docker cp` 到容器 `/app/db/...`，别在宿主机直接写（EACCES）。md→pdf 用容器内 `backend/scripts/md_to_pdf_report.py`。只留 /tmp = 未交付。
+**报告落盘（必做）**：`data/reports/stock_reports/{市场名}/{股票名}/{股票名}{代码}_{日期}_投研分析报告.{md,pdf}`；宿主机目录 owner 是容器内 root → 必须 `docker cp` 到容器 `/app/db/...`，别在宿主机直接写（EACCES）。md→pdf 用容器内 `backend/scripts/md_to_pdf_report.py`。只留 /tmp = 未交付。
 
 ## 落地端点速查
 

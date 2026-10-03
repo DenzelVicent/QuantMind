@@ -114,10 +114,10 @@ docker exec quantmind-db psql -U quantmind -d quantmind -c \
 # ① 按模板写 MD（结构见 §5）→ /tmp/{name}_{code}_report.md
 # ② 容器内转 PDF
 docker cp /tmp/{name}_{code}_report.md quantmind:/tmp/report.md
-docker exec quantmind bash -c 'mkdir -p "/data/reports/trading_agents/A股市场/{股票名}" && \
+docker exec quantmind bash -c 'mkdir -p "/data/reports/stock_reports/A股市场/{股票名}" && \
   python3 /app/backend/scripts/md_to_pdf_report.py /tmp/report.md \
-    "/data/reports/trading_agents/A股市场/{股票名}/{股票名}{code}_{YYYYMMDD}_深度学习分析报告.pdf" && \
-  cp /tmp/report.md "/data/reports/trading_agents/A股市场/{股票名}/{股票名}{code}_{YYYYMMDD}_深度学习分析报告.md"'
+    "/data/reports/stock_reports/A股市场/{股票名}/{股票名}{code}_{YYYYMMDD}_深度学习分析报告.pdf" && \
+  cp /tmp/report.md "/data/reports/stock_reports/A股市场/{股票名}/{股票名}{code}_{YYYYMMDD}_深度学习分析报告.md"'
 # ③ 宿主机可见（挂载 ./db:/app/db 自动同步），前端报告列表可查
 ```
 
@@ -182,7 +182,7 @@ docker exec quantmind bash -c 'mkdir -p "/data/reports/trading_agents/A股市场
 3. **禁止**在没做单位核对前引用数值——先查 [[quantdb-fields]]（volume=股/amount=万元、估值 close 不复权等）。
 4. **禁止**把 VPIN 高位当利空（正 IC）；禁止把 `inc_net_profit_rate`（增速）当利润率。
 5. **禁止**在 L5 拥挤度 ≥0.9 时给"追高买入"建议。
-6. 落盘才算交付——`db/trading_agents_results/...` 缺 MD 或 PDF = 未完成。
+6. 落盘才算交付——`data/reports/stock_reports/...` 缺 MD 或 PDF = 未完成。
 
 ---
 

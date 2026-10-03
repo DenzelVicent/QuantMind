@@ -62,7 +62,7 @@
     <text x="141" y="22" text-anchor="middle" font-size="12" font-weight="700" fill="#1e293b">Engine 引擎服务  (:8001)</text>
     <text x="141" y="56" text-anchor="middle" font-size="11" font-weight="600" fill="#334155">Qlib 回测 · StrategyLab · 批量推理</text>
     <text x="141" y="73" text-anchor="middle" font-size="11" fill="#64748b">RD-Agent / AlphaAgent 因子挖掘</text>
-    <text x="141" y="90" text-anchor="middle" font-size="11" fill="#64748b">TradingAgents 多 Agent 投研</text>
+    <text x="141" y="90" text-anchor="middle" font-size="11" fill="#64748b">投研报告归档（技能中心）</text>
     <text x="141" y="107" text-anchor="middle" font-size="11" fill="#64748b">13 模型训练（本地 Docker / AutoDL）</text>
     <text x="141" y="124" text-anchor="middle" font-size="11" fill="#64748b">AI-IDE · data_platform · quantbot</text>
     <text x="141" y="143" text-anchor="middle" font-size="10" fill="#94a3b8">耗时任务 → Celery qlib_backtest_srv</text>
@@ -157,7 +157,7 @@
     <text x="141" y="33" text-anchor="middle" font-size="10" fill="#64748b">7×24 资讯 · enrich 打标</text>
     <rect x="298" y="0" width="284" height="44" rx="6" fill="#ffffff" stroke="#e2e8f0" filter="url(#softShadow)"/>
     <text x="440" y="18" text-anchor="middle" font-size="11" font-weight="600" fill="#334155">QwenPaw QuantBot :8088</text>
-    <text x="440" y="33" text-anchor="middle" font-size="10" fill="#64748b">skills 经 API 导入 · 前端直连</text>
+    <text x="440" y="33" text-anchor="middle" font-size="10" fill="#64748b">技能池 · IM 渠道远程指令</text>
     <rect x="597" y="0" width="283" height="44" rx="6" fill="#ffffff" stroke="#e2e8f0" filter="url(#softShadow)"/>
     <text x="738" y="18" text-anchor="middle" font-size="11" font-weight="600" fill="#334155">券商通道：TDX 桥 / IB</text>
     <text x="738" y="33" text-anchor="middle" font-size="10" fill="#64748b">IB :4001/4002</text>

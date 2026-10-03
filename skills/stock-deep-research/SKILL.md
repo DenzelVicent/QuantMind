@@ -1,5 +1,5 @@
 ---
-name: trading-agents
+name: stock-deep-research
 description: "个股深度投研分析（智能体自主版）— 拉取 QuantMind 本地数据（特征快照/模型推理分数/新闻）→ 多空子代理辩论 → 综合研判 → 生成 md 报告 → 导出 PDF 到平台「股票报告」页。任何大模型（deepseek/qwen/glm/openai/minimax）都能执行，不依赖容器投研管线。在 QuantBot / Claude Code 中深度分析股票时使用。触发词：投研分析、多空辩论、股票报告、生成报告、多空分析、AI分析师"
 ---
 
@@ -8,7 +8,7 @@ description: "个股深度投研分析（智能体自主版）— 拉取 QuantMi
 
 # 个股深度投研分析（智能体自主版）
 
-> **核心定位**：本技能由 **AI 智能体自己执行**（QuantBot / Claude Code 等），**不依赖**容器内 TradingAgents 管线，**任何大模型都可以跑**。
+> **核心定位**：本技能由 **AI 智能体自己执行**（QuantBot / Claude Code 等），**不依赖**任何后端投研管线，**任何大模型都可以跑**。
 > 数据全部来自 QuantMind 本地 API（QuantDB 数据库），分析完成后智能体**自己组装 md 并导出 PDF**，报告自动出现在平台「股票报告」页。
 
 ## 一、完整流程总览
@@ -34,7 +34,7 @@ description: "个股深度投研分析（智能体自主版）— 拉取 QuantMi
   ↓
 ⑥ 导出 PDF（容器内 md_to_pdf_report.py，TTF 内嵌中文字体）
   ↓
-⑦ 保存到 /data/reports/trading_agents/{市场名}/{股票名}/  → 用户去「股票报告」页查看
+⑦ 保存到 /data/reports/stock_reports/{市场名}/{股票名}/  → 用户去「股票报告」页查看
 ```
 
 ## 二、认证
@@ -214,7 +214,7 @@ curl -s -H "$AUTH" "$BASE/api/v1/news/articles?tickers=600519&sort=sentiment_bea
 
 ```bash
 # 目录结构: 市场文件夹 / 股票名文件夹（A股市场 / 美股市场 / 港股市场 / 区块链市场 / 期货市场）
-mkdir -p "/data/reports/trading_agents/A股市场/贵州茅台"
+mkdir -p "/data/reports/stock_reports/A股市场/贵州茅台"
 # 文件名: {股票名}{代码}_{trade_date}_投研分析报告.md（股票名查不到时省略股票名）
 # 例: 贵州茅台600519_2026-08-15_投研分析报告.md
 ```
@@ -225,8 +225,8 @@ mkdir -p "/data/reports/trading_agents/A股市场/贵州茅台"
 
 ```bash
 python3 /app/backend/scripts/md_to_pdf_report.py \
-  "/data/reports/trading_agents/A股市场/贵州茅台/贵州茅台600519_2026-08-15_投研分析报告.md" \
-  "/data/reports/trading_agents/A股市场/贵州茅台/贵州茅台600519_2026-08-15_投研分析报告.pdf"
+  "/data/reports/stock_reports/A股市场/贵州茅台/贵州茅台600519_2026-08-15_投研分析报告.md" \
+  "/data/reports/stock_reports/A股市场/贵州茅台/贵州茅台600519_2026-08-15_投研分析报告.pdf"
 # 备选（本地缺依赖时）：
 # docker exec quantmind python /app/backend/scripts/md_to_pdf_report.py <同上路径>
 ```
@@ -240,7 +240,7 @@ python3 /app/backend/scripts/md_to_pdf_report.py \
 ```bash
 docker exec quantmind python -c "
 import re
-data = open('/data/reports/trading_agents/A股市场/贵州茅台/贵州茅台600519_2026-08-15_投研分析报告.pdf','rb').read()
+data = open('/data/reports/stock_reports/A股市场/贵州茅台/贵州茅台600519_2026-08-15_投研分析报告.pdf','rb').read()
 bf = sorted(set(m.group(1).decode() for m in re.finditer(rb'/BaseFont\s*/([A-Za-z0-9+_.-]+)', data)))
 print('字体:', bf)
 print('粗体 OK:', any('ZenHei' in f or 'CJK-Bold' in f for f in bf))
@@ -275,7 +275,7 @@ print(df.columns.tolist())   # 找 name 列
 ### 7.4 验证导出成功
 
 ```bash
-ls -la "/data/reports/trading_agents/A股市场/{股票名}/" | grep {ticker}
+ls -la "/data/reports/stock_reports/A股市场/{股票名}/" | grep {ticker}
 # 或调用列表接口确认（报告档案页同源）:
 curl -s "$BASE/api/v1/reports/files/list" | python3 -m json.tool | grep {ticker}
 ```
@@ -314,7 +314,7 @@ curl -s -X POST -H "$AUTH" -H "$CT" "$BASE/api/v1/reports/files/move" \
 curl -s -X POST -H "$AUTH" -H "$CT" "$BASE/api/v1/reports/files/delete-folder" -d '{"folder":"重点观察"}'
 ```
 
-> 后端实现：`backend/services/engine/routers/report_archive.py`；归档根目录由 `QM_REPORT_ARCHIVE_DIR` 指定（默认 `/data/reports/trading_agents`）。
+> 后端实现：`backend/services/engine/routers/report_archive.py`；归档根目录由 `QM_REPORT_ARCHIVE_DIR` 指定（默认 `/data/reports/stock_reports`）。
 
 ## 十、相关技能
 
@@ -332,6 +332,6 @@ curl -s -X POST -H "$AUTH" -H "$CT" "$BASE/api/v1/reports/files/delete-folder" -
 | 新闻为空 | 报告标注数据缺失 + 提醒用户加 RSS 新闻源（后台 RSS 管理/Huntly） |
 | 股票名查不到 | 标题回退纯代码；US/HK 查 sector parquet 的 name 列 |
 | PDF 转不出来 | 确认容器 `docker exec quantmind python -c "import reportlab"`；字体回退链见 7.2（WQY 在宿主机 `docker/training/fonts/`，bind mount 进容器 `/app/docker/training/fonts/`） |
-| 股票报告页找不到报告 | 目录名必须用 **`A股市场`（无空格）**，与前端档案页市场分组一致；结构为「市场文件夹/股票名文件夹/{股票名}{代码}_{日期}_{报告类型}.{md,pdf}」，归档根目录 = `QM_REPORT_ARCHIVE_DIR`（默认 `/data/reports/trading_agents`） |
+| 股票报告页找不到报告 | 目录名必须用 **`A股市场`（无空格）**，与前端档案页市场分组一致；结构为「市场文件夹/股票名文件夹/{股票名}{代码}_{日期}_{报告类型}.{md,pdf}」，归档根目录 = `QM_REPORT_ARCHIVE_DIR`（默认 `/data/reports/stock_reports`） |
 | 报告目录写不进 | 宿主机目录 owner 是容器内 root：md 先写 `/tmp` 再 `docker cp` 进容器，或用 `docker exec quantmind python` 直接落盘 |
 | 推理分数接口 404 | 该股近期无推理记录，报告中注明"无最近推理数据" |

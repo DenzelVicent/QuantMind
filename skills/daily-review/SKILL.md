@@ -137,16 +137,16 @@ python3 /app/backend/scripts/md_to_pdf_report.py /tmp/review.md /tmp/review.pdf
 
 ### 第 4 步：落盘股票报告目录（必做，只发 /tmp = 未交付）
 
-文件名固定：`每日复盘_{YYYY-MM-DD}.md` / `.pdf`，放 `db/trading_agents_results/每日复盘/`。
+文件名固定：`每日复盘_{YYYY-MM-DD}.md` / `.pdf`，放 `data/reports/stock_reports/每日复盘/`。
 
 ```bash
 # —— 宿主机：宿主机直接 cp 会 EACCES（目录 owner 是容器 root），必须 docker cp ——
-docker cp 复盘.md quantmind:/data/reports/trading_agents/每日复盘/每日复盘_2026-08-14.md
-docker cp 复盘.pdf quantmind:/data/reports/trading_agents/每日复盘/每日复盘_2026-08-14.pdf
+docker cp 复盘.md quantmind:/data/reports/stock_reports/每日复盘/每日复盘_2026-08-14.md
+docker cp 复盘.pdf quantmind:/data/reports/stock_reports/每日复盘/每日复盘_2026-08-14.pdf
 
 # —— 容器内：直接 cp ——
-cp 复盘.md /data/reports/trading_agents/每日复盘/每日复盘_2026-08-14.md
-cp 复盘.pdf /data/reports/trading_agents/每日复盘/每日复盘_2026-08-14.pdf
+cp 复盘.md /data/reports/stock_reports/每日复盘/每日复盘_2026-08-14.md
+cp 复盘.pdf /data/reports/stock_reports/每日复盘/每日复盘_2026-08-14.pdf
 ```
 
 落盘后 `ls` 确认 md + pdf 都在（前端「股票报告」页 → 每日复盘 文件夹）。

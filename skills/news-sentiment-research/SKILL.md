@@ -120,8 +120,8 @@ ENABLE_TAG_BOOST = True          # 事件标签 → 仓位 1.3-1.5x
 # 2) 容器内转 PDF（研报排版：深蓝封面+金色双线+斑马纹+红涨绿跌）
 docker exec quantmind python3 /app/backend/scripts/md_to_pdf_report.py /tmp/report.md /tmp/report.pdf
 # 3) 落盘前端可见目录（必做，只发 /tmp = 未交付）
-docker cp report.md  quantmind:/data/reports/trading_agents/每日复盘/新闻情绪研究报告_$(date +%F).md
-docker cp report.pdf quantmind:/data/reports/trading_agents/每日复盘/新闻情绪研究报告_$(date +%F).pdf
+docker cp report.md  quantmind:/data/reports/stock_reports/每日复盘/新闻情绪研究报告_$(date +%F).md
+docker cp report.pdf quantmind:/data/reports/stock_reports/每日复盘/新闻情绪研究报告_$(date +%F).pdf
 ```
 
 报告标准结构（13 章）：数据基础 → 事件研究 → 来源特征 → 时间特征 → 信号强度 → 价格行为 → 事件标签 → 策略回测（含 P0 升级 v6/hw40）→ 极端案例 → 规律清单 → 风险局限 → 结论 → **单股深度分析应用手册**。模板：`docs/news_sentiment_deep_report.md`（2026-08-21 升华版）。

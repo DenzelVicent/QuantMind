@@ -51,7 +51,7 @@ outputs: <产出物与落盘目录>
 | [stock-market-analysis](stock-market-analysis.md) | 个股/全市场深度分析与 CSV 导出 |
 | [stock-picks](stock-picks.md) | 每日股票推荐（多维打分） |
 | [stock-research](stock-research.md) | 个股深度研究（多 Agent） |
-| [trading-agents](trading-agents.md) | 个股投研分析（智能体自主版） |
+| [stock-deep-research](stock-deep-research.md) | 个股投研分析（智能体自主版） |
 | [smart-strategy-stock-picking](smart-strategy-stock-picking.md) | 条件选股 |
 | [batch-inference-analysis](batch-inference-analysis.md) | 批量推理信号分析 |
 | [news-sentiment-research](news-sentiment-research.md) | 新闻情绪研究方法论 |

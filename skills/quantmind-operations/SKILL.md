@@ -445,9 +445,9 @@ curl -s -X POST -H "$AUTH" "$BASE/api/v1/news/sources/{source_id}/refresh"
 当用户要求**用 AI 写策略 / 生成 Qlib 策略代码**时，使用 [[ai-ide-strategy-writing]] 技能。
 当用户要求**模拟交易 / 下单 / 查持仓**时，使用 [[simulation-trading]] 技能。
 当用户要求**分析批量推理结果 / 解读信号 / 选股决策 / 负分参考**时，使用 [[batch-inference-analysis]] 技能。
-当用户要求**生成投研报告 / 深度研报 / 多Agent分析**时，使用 [[trading-agents]] 技能。
+当用户要求**生成投研报告 / 深度研报 / 多Agent分析**时，使用 [[stock-deep-research]] 技能。
 
-> 注：平台**已下线**容器内 TradingAgents 多 Agent 图管线（analyze/progress/report 系列端点）。投研报告一律走 [[trading-agents]] 技能（智能体自主版，任意大模型可跑），落盘后由「技能中心 → 报告档案」统一浏览。
+> 注：投研报告由 [[stock-deep-research]] 技能（智能体自主版，任意大模型可跑）编排生成，落盘后由「技能中心 → 报告档案」统一浏览。
 
 ## 9. 相关技能
 
@@ -459,7 +459,7 @@ curl -s -X POST -H "$AUTH" "$BASE/api/v1/news/sources/{source_id}/refresh"
 - **[[ai-ide-strategy-writing]]** — AI-IDE 写策略并执行（Docker runner 运行/回测）
 - **[[simulation-trading]]** — 模拟交易（下单买卖/持仓/成交/账户/模拟盘启动）
 - **[[batch-inference-analysis]]** — 批量推理结果分析（市场状态/选股/负分参考/行业轮动）
-- **[[trading-agents]]** — 投研分析（智能体自主版：本地数据 → 多空子代理辩论 → 综合研判 → PDF 报告归档）
+- **[[stock-deep-research]]** — 投研分析（智能体自主版：本地数据 → 多空子代理辩论 → 综合研判 → PDF 报告归档）
 
 ## 10. 常见排查
 

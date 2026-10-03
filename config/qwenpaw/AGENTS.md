@@ -28,7 +28,7 @@ read_when:
 | 模拟交易、下单、持仓、资金 | `simulation-trading` |
 | 条件选股、选股策略、智能选股 | `smart-strategy-stock-picking` |
 | 全市场扫描、行业轮动、个股分析、数据导出 | `stock-market-analysis` |
-| 投研、深度分析、个股报告 | `trading-agents` |
+| 投研、深度分析、个股报告 | `stock-deep-research` |
 
 没有匹配的技能时，用工具自己查，别硬套。
 

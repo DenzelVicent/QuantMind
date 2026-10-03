@@ -60,7 +60,7 @@ mkdir -p /tmp/stock-research/{symbol}/reports
 docker cp /tmp/stock-research/{symbol}/reports/final.md quantmind:/tmp/ma_report.md
 docker exec quantmind bash -lc "cd /app && python3 backend/scripts/md_to_pdf_report.py /tmp/ma_report.md /tmp/ma_report.pdf"
 # ② 落盘：A股市场/{股票名}/（与深度学习分析报告同列表；容器 root 目录，须容器内操作）
-docker exec quantmind bash -c "mkdir -p '/data/reports/trading_agents/A股市场/{股票名}' && cp /tmp/ma_report.md '/data/reports/trading_agents/A股市场/{股票名}/{股票名}{代码}_{date}_深度研究分析报告.md' && cp /tmp/ma_report.pdf '/data/reports/trading_agents/A股市场/{股票名}/{股票名}{代码}_{date}_深度研究分析报告.pdf'"
+docker exec quantmind bash -c "mkdir -p '/data/reports/stock_reports/A股市场/{股票名}' && cp /tmp/ma_report.md '/data/reports/stock_reports/A股市场/{股票名}/{股票名}{代码}_{date}_深度研究分析报告.md' && cp /tmp/ma_report.pdf '/data/reports/stock_reports/A股市场/{股票名}/{股票名}{代码}_{date}_深度研究分析报告.pdf'"
 ```
 
 股票名从数据包 `sector` 或行情结果获取（如无中文名则用代码）。

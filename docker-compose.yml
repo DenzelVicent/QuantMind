@@ -198,7 +198,7 @@ services:
       # 统一报告根目录（技能中心）：复盘/市场分析/个股研究/股票池/报告归档
       - QM_REPORTS_DIR=/data/reports
       # 报告归档库根目录（前端「股票报告」页 + QuantBot 技能落盘约定）
-      - QM_REPORT_ARCHIVE_DIR=/data/reports/trading_agents
+      - QM_REPORT_ARCHIVE_DIR=/data/reports/stock_reports
 
       # 本地 Docker 训练编排（模型训练）
       - INTERNAL_CALL_SECRET=${INTERNAL_CALL_SECRET:-changeme-internal-secret}
@@ -417,7 +417,7 @@ services:
 
       # 统一报告根目录（技能中心）：复盘/市场分析/个股研究/股票池/投研报告
       - QM_REPORTS_DIR=/data/reports
-      - QM_REPORT_ARCHIVE_DIR=/data/reports/trading_agents
+      - QM_REPORT_ARCHIVE_DIR=/data/reports/stock_reports
 
       # 本地 Docker 训练编排（模型训练）
       - INTERNAL_CALL_SECRET=${INTERNAL_CALL_SECRET:-changeme-internal-secret}

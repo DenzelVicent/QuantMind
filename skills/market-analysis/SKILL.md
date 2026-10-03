@@ -59,9 +59,9 @@ docker cp quantmind:/tmp/ma_report.pdf <repo>/data/reports/market_analysis/{date
 ### 第 4 步：落盘股票报告目录（前端「股票报告」页可见）
 
 ```bash
-mkdir -p <repo>/db/trading_agents_results/市场分析
-cp <repo>/data/reports/market_analysis/{date}_report.md <repo>/db/trading_agents_results/市场分析/市场分析_{date}.md
-docker cp <repo>/data/reports/market_analysis/{date}_report.pdf quantmind:/data/reports/trading_agents/市场分析/市场分析_{date}.pdf
+mkdir -p <repo>/data/reports/stock_reports/市场分析
+cp <repo>/data/reports/market_analysis/{date}_report.md <repo>/data/reports/stock_reports/市场分析/市场分析_{date}.md
+docker cp <repo>/data/reports/market_analysis/{date}_report.pdf quantmind:/data/reports/stock_reports/市场分析/市场分析_{date}.pdf
 ```
 
 文件名固定：`市场分析_{YYYY-MM-DD}.md` / `.pdf`。
@@ -69,7 +69,7 @@ docker cp <repo>/data/reports/market_analysis/{date}_report.pdf quantmind:/data/
 **用户要求「放深度分析那里」时**：额外落一份到 A股市场 分组（与个股深度分析/投研报告同列表展示，报告管理页 → A股市场 → 市场分析）：
 
 ```bash
-docker exec quantmind bash -c "mkdir -p '/data/reports/trading_agents/A股市场/市场分析' && cp /tmp/ma_report.md '/data/reports/trading_agents/A股市场/市场分析/市场分析_{date}.md' && cp /tmp/ma_report.pdf '/data/reports/trading_agents/A股市场/市场分析/市场分析_{date}.pdf'"
+docker exec quantmind bash -c "mkdir -p '/data/reports/stock_reports/A股市场/市场分析' && cp /tmp/ma_report.md '/data/reports/stock_reports/A股市场/市场分析/市场分析_{date}.md' && cp /tmp/ma_report.pdf '/data/reports/stock_reports/A股市场/市场分析/市场分析_{date}.pdf'"
 ```
 
 > 注：`A股市场/` 目录为容器 root 创建，宿主机无写权限，须在容器内操作（docker exec 为 root）。

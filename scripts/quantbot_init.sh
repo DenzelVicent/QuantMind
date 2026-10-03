@@ -87,6 +87,18 @@ PYEOF
       || warn "删除池技能 $name 返回: $resp"
   done
 
+  # 1.2b 清理已下线的历史技能（仅按名单删除，防止池中残留孤儿技能）
+  # 上面只删「本地仍存在的同名技能」，技能一旦改名/下线，旧名就会永久留在池里。
+  # 新增条目时只允许追加，不要删历史条目（老部署可能还没清）。
+  local -a retired_names=(trading-agents)
+  for name in "${retired_names[@]}"; do
+    local resp
+    resp="$(curl -s -X DELETE "$QWENPAW_BASE_URL/api/skills/pool/$name")"
+    [[ "$resp" == *'"deleted":true'* || "$resp" == *'404'* || "$resp" == *'Not Found'* || "$resp" == *'cannot be deleted'* ]] \
+      || warn "清理历史技能 $name 返回: $resp"
+  done
+  log "    已清理历史下线技能: ${retired_names[*]}"
+
   # 1.3 上传到技能池
   local upload_resp
   upload_resp="$(curl -s -X POST "$QWENPAW_BASE_URL/api/skills/pool/upload-zip" \

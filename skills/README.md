@@ -37,7 +37,7 @@ cp -r skills/<skill-name> ~/.claude/skills/
 | [stock-market-analysis](stock-market-analysis/) | 股票市场深度数据分析与导出：全市场扫描、行业轮动、个股六维深度分析、CSV/Excel 导出 | 分析市场、全市场扫描、导出CSV、个股研报 |
 | [stock-picks](stock-picks/) | 复盘后的每日股票推荐：多维打分（L2微观/模型融合分/仓位/板块/情绪）从全市场挑强势股，输出候选榜 + Top 个股深分 PDF | 选股、推荐股票、每日推荐、明日看好 |
 | [stock-research](stock-research/) | 个股深度研究（多 Agent 版）：5 分析师并行 → 多空辩论 → 汇总报告 → PDF，数据走本地 QuantDB + 新闻 | 深度研究、研究600519、多角度分析 |
-| [trading-agents](trading-agents/) | 个股投研分析（智能体自主版）：本地数据 → 多空子代理辩论 → 综合研判 → PDF 报告，不依赖容器投研管线 | 投研分析、深度分析、多空分析、生成报告 |
+| [stock-deep-research](stock-deep-research/) | 个股投研分析（智能体自主版）：本地数据 → 多空子代理辩论 → 综合研判 → PDF 报告，不依赖容器投研管线 | 投研分析、深度分析、多空分析、生成报告 |
 | [smart-strategy-stock-picking](smart-strategy-stock-picking/) | 智能策略选股：基于 QuantDB 的条件选股，自然语言或结构化条件构建股票池 | 选股、筛选股票、股票池、条件选股 |
 | [batch-inference-analysis](batch-inference-analysis/) | 批量推理结果分析：每日信号、行业轮动、个股分数区间、负分参考 | 分析批量推理、解读信号、每日选股 |
 | [news-sentiment-research](news-sentiment-research/) | 新闻情绪研究方法论：42万篇 RSS 新闻 → FinBERT+词典情绪 → 事件研究 + 七维分析 → 优化回测 → 研报 MD+PDF | 新闻情绪、新闻规律、情绪回测、消息面 |

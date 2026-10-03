@@ -84,8 +84,8 @@ docker exec quantmind bash -lc "cd /app && python3 backend/scripts/md_to_pdf_rep
 docker cp quantmind:/tmp/picks.pdf 选股推荐.pdf
 
 # 落盘股票报告目录（宿主机必须 docker cp，目录 owner 是容器 root）
-docker cp 选股推荐.md quantmind:/data/reports/trading_agents/每日选股/每日选股推荐_2026-08-21.md
-docker cp 选股推荐.pdf quantmind:/data/reports/trading_agents/每日选股/每日选股推荐_2026-08-21.pdf
+docker cp 选股推荐.md quantmind:/data/reports/stock_reports/每日选股/每日选股推荐_2026-08-21.md
+docker cp 选股推荐.pdf quantmind:/data/reports/stock_reports/每日选股/每日选股推荐_2026-08-21.pdf
 ```
 
 落盘后 `ls` 确认 md + pdf 都在（前端「股票报告」页 → 每日选股 文件夹）。

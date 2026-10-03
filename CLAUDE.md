@@ -75,9 +75,9 @@ npm run dashboard:build  # 生产环境构建
   - **QuantDB 远程适配器**：`adapters/quantdb_adapter.py` - 远程 SDK 实时查询（兜底）
   - **Qlib 数据构建器**：`qlib_data_builder.py` - 由 QuantDB parquet 生成 Qlib 二进制缓存（派生产物）
   - **字段路由**：`config/data_sources/field_routing.yaml` - quantdb_local 优先，旧适配器兜底
-- **报告归档**：`backend/services/engine/routers/report_archive.py` - 分析报告档案库 REST API（列表/预览/上传/移动/删除/文件夹），归档根目录 `QM_REPORT_ARCHIVE_DIR`（默认 `/data/reports/trading_agents`）
+- **报告归档**：`backend/services/engine/routers/report_archive.py` - 分析报告档案库 REST API（列表/预览/上传/移动/删除/文件夹），归档根目录 `QM_REPORT_ARCHIVE_DIR`（默认 `/data/reports/stock_reports`）
   - 前端：`electron/src/features/report-archive/`（挂在「技能中心」右栏，非独立路由）
-  - 历史：容器内 TradingAgents 多 Agent 图管线（analyze/progress/report/history）已下线；投研报告统一走 `skills/trading-agents` 技能（智能体自主版），落盘后由本模块归档浏览
+  - 报告由 QuantBot 技能（`skills/stock-deep-research` / `stock-research` / `stock-market-analysis` / `daily-review` …）生成后落盘，本模块只做归档与浏览
 - **数据管线**：`backend/scripts/` - 统一的每日数据同步
   - `quantdb_daily_sync.py` - 主同步链路：sync_dataset() → parquet → PG 回填 → Qlib 缓存
   - `daily_data_sync.py` - 全量同步：QuantDB parquet → baostock → akshare → eltdx → PG → Qlib 缓存 → 指标 → parquet

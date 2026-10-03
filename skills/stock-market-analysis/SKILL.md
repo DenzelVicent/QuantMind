@@ -446,8 +446,8 @@ curl -s -H "$AUTH" "$BASE/api/v1/research/universe?run_id=run_20260805_xxx&limit
 报告生成后**必须**写入股票报告目录（前端「股票报告」页展示的就是这里）：
 
 ```
-db/trading_agents_results/{市场名}/{股票名}/{股票名}{代码}_{日期}_投研分析报告.{md,pdf}
-例：db/trading_agents_results/A股市场/工业富联/工业富联601138_2026-08-16_投研分析报告.md
+data/reports/stock_reports/{市场名}/{股票名}/{股票名}{代码}_{日期}_投研分析报告.{md,pdf}
+例：data/reports/stock_reports/A股市场/工业富联/工业富联601138_2026-08-16_投研分析报告.md
 ```
 
 - 市场名：`A股市场`（**无空格**）/ 美股市场 / 港股市场 / 区块链市场 / 期货市场
@@ -458,10 +458,10 @@ db/trading_agents_results/{市场名}/{股票名}/{股票名}{代码}_{日期}_�
   docker exec quantmind bash -lc "cd /app && python3 backend/scripts/md_to_pdf_report.py /tmp/report.md /tmp/report.pdf"
   docker cp quantmind:/tmp/report.pdf /tmp/report.pdf
   ```
-- **落盘权限陷阱**：宿主机上 `db/trading_agents_results/` 的目录 owner 是容器内 root，宿主机直接 cp md 会 EACCES——**必须走 docker cp**（容器内路径 `/data/reports/trading_agents/...`，宿主机的 `./db` 挂载到容器 `/app/db`）：
+- **落盘权限陷阱**：宿主机上 `data/reports/stock_reports/` 的目录 owner 是容器内 root，宿主机直接 cp md 会 EACCES——**必须走 docker cp**（容器内路径 `/data/reports/stock_reports/...`，宿主机的 `./db` 挂载到容器 `/app/db`）：
   ```bash
-  docker cp /tmp/report.md quantmind:/data/reports/trading_agents/A股市场/{股票名}/{股票名}{代码}_{日期}_投研分析报告.md
-  docker cp /tmp/report.pdf quantmind:/data/reports/trading_agents/A股市场/{股票名}/{股票名}{代码}_{日期}_投研分析报告.pdf
+  docker cp /tmp/report.md quantmind:/data/reports/stock_reports/A股市场/{股票名}/{股票名}{代码}_{日期}_投研分析报告.md
+  docker cp /tmp/report.pdf quantmind:/data/reports/stock_reports/A股市场/{股票名}/{股票名}{代码}_{日期}_投研分析报告.pdf
   ```
 - 交付确认：ls 目标目录确认 md+pdf 都存在；只发 /tmp 路径 = 未交付
 

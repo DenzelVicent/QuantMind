@@ -1,6 +1,6 @@
 ---
 name: stock-research
-description: "个股深度研究（多 Agent 框架版）— 借鉴 TradingAgents-CN 多角色编排（技术/新闻/资金情绪/基本面/市场 5 分析师并行 → 多空辩论 → 研究经理汇总），数据全部走 QuantMind 本地（QuantDB + PG 新闻富集 + Huntly），新闻双通道（自家 FinBERT 量化情绪 + 实时搜索补充）。用户说「深度研究」「个股深度研究」「研究某只股票」「多角度分析」时使用：跑 research_data.py 取数 → 并行分析师 → 辩论 → 汇总报告 → PDF → 落盘深度分析目录。触发词：深度研究、个股研究、研究600519、多角度分析、全面分析某股"
+description: "个股深度研究（多 Agent 编排版）— 多角色分析师并行编排（技术/新闻/资金情绪/基本面/市场 5 分析师并行 → 多空辩论 → 研究经理汇总），数据全部走 QuantMind 本地（QuantDB + PG 新闻富集 + Huntly），新闻双通道（自家 FinBERT 量化情绪 + 实时搜索补充）。用户说「深度研究」「个股深度研究」「研究某只股票」「多角度分析」时使用：跑 research_data.py 取数 → 并行分析师 → 辩论 → 汇总报告 → PDF → 落盘深度分析目录。触发词：深度研究、个股研究、研究600519、多角度分析、全面分析某股"
 ---
 
 > ⚙️ 本技能遵循公共运行环境契约（最高优先级，先于本文其余内容执行）：
@@ -8,12 +8,13 @@ description: "个股深度研究（多 Agent 框架版）— 借鉴 TradingAgent
 
 # stock-research — 个股深度研究（多 Agent 框架版）
 
-把 TradingAgents-CN 的多角色投研框架落地到 QuantMind：**数据 100% 走本地**（QuantDB parquet + PG 新闻富集 + Huntly），**新闻双通道**（自家 FinBERT 情绪量化 + WebSearch 实时补充），输出研报级 MD + PDF，落盘深度分析目录（报告管理页 → A股市场 → {股票名}）。
+把多角色投研编排落地到 QuantMind：**数据 100% 走本地**（QuantDB parquet + PG 新闻富集 + Huntly），**新闻双通道**（自家 FinBERT 情绪量化 + WebSearch 实时补充），输出研报级 MD + PDF，落盘深度分析目录（报告管理页 → A股市场 → {股票名}）。
 
-与「深度分析某只股票」（后端 TradingAgents 深度分析）**不冲突，互为补充**：
-- 后端深度分析 = TradingAgents 图管线（AI 分析师辩论 → 投资决策报告），在 QuantBot/页面触发，报告落 `A股市场/{股票名}/`；
-- 本 skill = Claude Code 直接编排的多 Agent 版，**数据同源**（QuantDB + PG），并额外整合了**模型推理分数**（engine_signal_scores）与**新闻类型分布**；
-- 结论冲突时以数据为准：skill 的每个数字都可在数据包溯源，后端深度分析的报告也可作为第六维参考（用户要求时读 `A股市场/{股票名}/` 下已有投研报告交叉验证）。
+与 [[stock-deep-research]]（智能体自主版深度投研）**不冲突，互为补充**：
+- 本 skill = 5 分析师并行编排的「多 Agent 框架版」，流程更重、结构化更强；
+- [[stock-deep-research]] = 轻量自主版（特征快照 → 多空子代理辩论 → 综合研判），任何大模型可跑；
+- 两者**数据同源**（QuantDB + PG），本 skill 额外整合了**模型推理分数**（engine_signal_scores）与**新闻类型分布**；
+- 结论冲突时以数据为准：每个数字都可在数据包溯源，也可读归档目录下已有报告（`A股市场/{股票名}/`）交叉验证。
 
 ## 架构
 
@@ -83,9 +84,9 @@ python3 /app/backend/scripts/md_to_pdf_report.py /tmp/stock-research/{symbol}/re
 
 # 落盘（A股市场/{股票名}/，与深度分析报告同列表）
 # /data 为 QwenPaw 与 quantmind 共享挂载，直接写入即可被「报告档案」页实时列出
-mkdir -p '/data/reports/trading_agents/A股市场/{股票名}'
-cp /tmp/stock-research/{symbol}/reports/final.md '/data/reports/trading_agents/A股市场/{股票名}/{股票名}{代码}_2026-08-29_深度研究分析报告.md'
-cp /tmp/ma_report.pdf '/data/reports/trading_agents/A股市场/{股票名}/{股票名}{代码}_2026-08-29_深度研究分析报告.pdf'
+mkdir -p '/data/reports/stock_reports/A股市场/{股票名}'
+cp /tmp/stock-research/{symbol}/reports/final.md '/data/reports/stock_reports/A股市场/{股票名}/{股票名}{代码}_2026-08-29_深度研究分析报告.md'
+cp /tmp/ma_report.pdf '/data/reports/stock_reports/A股市场/{股票名}/{股票名}{代码}_2026-08-29_深度研究分析报告.pdf'
 ```
 
 文件名约定：`{股票名}{代码}_{日期}_深度研究分析报告.pdf`（与现有深度学习分析报告同格式，便于排序）。

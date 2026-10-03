@@ -83,17 +83,17 @@ P.append(("stock-picks", "每日股票推荐", "研究分析",
 
 P.append(("stock-research", "个股深度研究（多Agent）", "研究分析",
     "5 分析师并行（技术/新闻/资金情绪/基本面/市场）→ 多空辩论 → 研究经理汇总 → 研报 PDF",
-    "data/reports/stock_research/ + data/reports/trading_agents/ PDF",
+    "data/reports/stock_research/ + data/reports/stock_reports/ PDF",
     """请对 {股票名称及代码，如：贵州茅台 600519} 做一次个股深度研究。
 
-请读取 skills/stock-research/SKILL.md 并严格按多 Agent 流程执行：跑 research_data.py 取数 → 5 个分析师并行（用 prompts/ 下的角色提示词）→ 多空辩论 → 研究经理汇总 → MD 转 PDF → 落盘 data/reports/trading_agents/{市场}/{股票名}/（平台股票报告页可见）。最后给我结论速览：核心逻辑、多空关键分歧、风险点。"""))
+请读取 skills/stock-research/SKILL.md 并严格按多 Agent 流程执行：跑 research_data.py 取数 → 5 个分析师并行（用 prompts/ 下的角色提示词）→ 多空辩论 → 研究经理汇总 → MD 转 PDF → 落盘 data/reports/stock_reports/{市场}/{股票名}/（平台股票报告页可见）。最后给我结论速览：核心逻辑、多空关键分歧、风险点。"""))
 
-P.append(("trading-agents", "个股投研分析（智能体自主版）", "研究分析",
-    "本地数据 → 多空子代理辩论 → 综合研判 → PDF 报告，不依赖容器投研管线",
-    "data/reports/trading_agents/ PDF 报告",
+P.append(("stock-deep-research", "个股投研分析（智能体自主版）", "研究分析",
+    "本地数据 → 多空子代理辩论 → 综合研判 → PDF 报告，由智能体自主编排，无需后端投研管线",
+    "data/reports/stock_reports/ PDF 报告",
     """请用智能体自主模式深度分析 {股票名称及代码}。
 
-请读取 skills/trading-agents/SKILL.md 并按其流程执行：拉取本地数据（特征快照/风险初筛/推理分数/新闻）→ 组织多空子代理辩论 → 综合研判 → 生成 MD 报告 → 转 PDF 落盘 data/reports/trading_agents/{市场}/{股票名}/。最后给我投资论点摘要和主要风险。"""))
+请读取 skills/stock-deep-research/SKILL.md 并按其流程执行：拉取本地数据（特征快照/风险初筛/推理分数/新闻）→ 组织多空子代理辩论 → 综合研判 → 生成 MD 报告 → 转 PDF 落盘 data/reports/stock_reports/{市场}/{股票名}/。最后给我投资论点摘要和主要风险。"""))
 
 P.append(("smart-strategy-stock-picking", "条件选股", "研究分析",
     "QuantDB 条件选股：自然语言/结构化/DSL 三种方式，可选登记为全局股票池",

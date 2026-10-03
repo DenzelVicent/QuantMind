@@ -73,4 +73,4 @@
 
 - `data/reports/daily_review/{YYYY-MM-DD}_stats.json`：全部结构化数据（金额 `*_yi` 字段单位为亿元）
 - `data/reports/daily_review/{YYYY-MM-DD}_facts.md`：事实清单（写报告的素材库）
-- 最终交付：`db/trading_agents_results/每日复盘/每日复盘_{YYYY-MM-DD}.{md,pdf}`
+- 最终交付：`data/reports/stock_reports/每日复盘/每日复盘_{YYYY-MM-DD}.{md,pdf}`

@@ -1,18 +1,13 @@
 """报告归档（Report Archive）REST API — 分析报告文件管理。
 
-从原 `routers/trading_agents.py` 拆分而来（TradingAgents 多 Agent 投研管线已下线，
-但报告档案库被「技能中心」前端与多个 QuantBot 技能复用，故独立成模块）。
-
 职责：
 - 列出报告目录（市场文件夹 → 股票名子文件夹 → 文件，含文件名解析出的元数据）
 - PDF 内联预览 / 上传 / 移动 / 删除 / 新建与删除文件夹
 
 目录约定：
-- 根目录由 `QM_REPORT_ARCHIVE_DIR` 指定，兼容历史 `TRADING_AGENTS_RESULTS_DIR`，
-  默认 `/data/reports/trading_agents`（沿用既有路径，避免已同步的 QuantBot 技能失效）。
+- 根目录由 `QM_REPORT_ARCHIVE_DIR` 指定，默认 `/data/reports/stock_reports`。
 - 结构：`{根}/{市场中文名}/{股票名}/{股票名}{代码}_{trade_date}_{报告类型}.{md,pdf}`
-  市场中文名见 `backend/scripts/md_to_pdf_report.py` 等报告生成方（A股市场 / 美股市场 /
-  港股市场 / 区块链市场 / 期货市场）。
+  市场中文名由各报告生成方约定（A股市场 / 美股市场 / 港股市场 / 区块链市场 / 期货市场）。
 """
 
 from __future__ import annotations
@@ -31,12 +26,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/reports", tags=["ReportArchive"])
 
-# 报告归档根目录（默认沿用历史路径，见模块 docstring）
+# 报告归档根目录
 _DEFAULT_RESULTS_DIR = Path(
-    os.getenv("QM_REPORT_ARCHIVE_DIR", "").strip() or "/data/reports/trading_agents"
+    os.getenv("QM_REPORT_ARCHIVE_DIR", "").strip() or "/data/reports/stock_reports"
 )
-# 历史遗留目录（旧版落在容器内 /app/db，宿主机 ./db）
-_LEGACY_RESULTS_DIR = Path("/app/db/trading_agents_results")
 
 # 报告文件扩展名
 _REPORT_SUFFIXES = (".pdf", ".md")
@@ -74,19 +67,16 @@ def _sanitize_name(raw: str) -> str:
 
 
 def _resolve_results_dir() -> Path:
-    """解析报告目录（宿主机/容器均可）。
+    """解析报告归档根目录。
 
-    优先级：`QM_REPORT_ARCHIVE_DIR` → 历史 `TRADING_AGENTS_RESULTS_DIR` → 默认目录
-    → 旧版 `/app/db/trading_agents_results`（保证历史报告仍可见）。
+    优先 `QM_REPORT_ARCHIVE_DIR`，否则用默认目录；目录不存在时返回默认路径，
+    由调用方自行 `mkdir -p`（列表接口会返回空列表而非报错）。
     """
-    for key in ("QM_REPORT_ARCHIVE_DIR", "TRADING_AGENTS_RESULTS_DIR"):
-        env_val = os.getenv(key, "").strip()
-        if env_val and Path(env_val).is_dir():
-            return Path(env_val)
+    env_val = os.getenv("QM_REPORT_ARCHIVE_DIR", "").strip()
+    if env_val and Path(env_val).is_dir():
+        return Path(env_val)
     if _DEFAULT_RESULTS_DIR.is_dir():
         return _DEFAULT_RESULTS_DIR
-    if _LEGACY_RESULTS_DIR.is_dir():
-        return _LEGACY_RESULTS_DIR
     return _DEFAULT_RESULTS_DIR
 
 

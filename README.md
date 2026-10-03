@@ -36,13 +36,13 @@
 
 ## 项目简介
 
-**QuantMind（量化大脑）** 是面向个人量化研究者、投研团队与专业机构的一体化 AI 原生量化交易平台。深度集成微软 **Qlib** 量化框架、**RD-Agent** 研发智能体与**多 Agent 投研技能体系**，全面打通量化全流程闭环：
+**QuantMind（量化大脑）** 是面向个人量化研究者、投研团队与专业机构的一体化 AI 原生量化交易平台。深度集成微软 **Qlib** 量化框架、**RD-Agent** 研发智能体与**多 Agent 投研技能体系**，并以 **QuantBot 全能机器人**作为自然语言总入口，全面打通量化全流程闭环：
 
 ```text
 数据底座 -> 因子挖掘 -> 模型训练 -> 批量推理 -> 组合回测 -> 模拟交易 -> 生产监控
 ```
 
-支持 **A 股、港股、美股、期货与区块链** 五大市场，帮助研究者摆脱繁琐的数据清洗与代码拼装，让模型自动从 300+ 维特征中挖掘 Alpha 规律。
+支持 **A 股、港股、美股、期货与区块链** 五大市场，帮助研究者摆脱繁琐的数据清洗与代码拼装，让模型自动从 300+ 维特征中挖掘 Alpha 规律。QuantBot 还可绑定 **微信 / QQ / 飞书 / 钉钉等 IM 工具**，在手机上直接远程下达量化指令。
 
 ***
 
@@ -58,6 +58,7 @@
 
 | 模块分类           | 核心能力与技术亮点                                                                                                                                                                                     |
 | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **QuantBot 全能机器人** | • **对话式量化总入口**：自然语言完成取数、选股、回测、训练、推理、投研报告与模拟交易全流程，不用记接口与参数 • **量化技能池**：30 个预置量化技能（投研报告 · 复盘 · 市场分析 · 选股 · 因子挖掘 · 训练/推理/回测 · 模拟交易 · 部署运维）一键导入并启用 • **IM 远程指令**：可绑定 **微信 / 企业微信 / QQ / 飞书 / 钉钉 / Telegram / Discord / Slack** 等 17 类渠道，手机上直接下达指令、回传结果与报告 • **深度接入平台**：直连 QuantDB / 引擎 / 交易服务，产出报告自动归档到「技能中心 → 报告档案」 |
 | **市场与数据**      | • 接入 QuantDB 数据中枢，内置 **300+ 维预计算特征**（L1/L2 微观结构与资金流） • 基于 **Parquet + DuckDB** 秒级列式存算，千万级行情秒级载入 • **7x24 RSS 舆情监控**：实时快讯流、事件实体自动匹配与利好/利空情绪量化                                                  |
 | **因子自主进化**     | • 集成微软 **RD-Agent (AutoAlpha 2.0)** 自动化因子进化体系 • **LLM 自主演化流水线**：自然语言假设 ➔ 因子公式合成 ➔ 遗传演化回测 ➔ 优选入库                                                                                               |
 | **13 种模型工场**   | • 覆盖经典树模型与深度学习：**LightGBM、XGBoost、CatBoost、GRU、LSTM、ALSTM、Transformer、TabNet、TCN、NativeTFT** 等 • 支持 **Stacking 多模型集成**（时序 OOF + Ridge 元学习器，经训练配置文件启用） • 算力调度：本地 Docker（CPU，有可用 NVIDIA 显卡自动挂载 GPU）或纳管 **自建 GPU 节点（AutoDL）** 远程训练 |
@@ -226,6 +227,66 @@ QuantMind 将日常量化研究工作流整合在同一套现代化、响应灵�
   <img src="docs/images/FactorMining.png" alt="智能因子挖掘" width="92%">
 </p>
 
+### 13. QuantBot 全能机器人（对话式量化助手）
+
+QuantBot 是平台的**智能体总入口**：用一句自然语言就能跑完「取数 → 分析 → 选股 → 回测 → 投研报告 → 模拟下单」的完整链路，不需要记忆 API、参数与文件格式。
+
+```text
+前端 (/quantbot)  ──►  quantmind-api :8000  ──►  QuantBot (:8088)
+                       /api/v1/openclaw/*       会话 / SSE 流式 / 技能池 / 渠道
+```
+
+| 能力 | 说明 |
+| --- | --- |
+| **对话即执行** | 自然语言触发取数、特征快照、模型推理、Qlib 回测、因子演化与报告生成；SSE 增量流式返回 |
+| **30 个量化技能池** | 投研报告（多空辩论）· 每日复盘 · 市场分析 · 条件选股 · 股票推荐 · 因子挖掘 · 训练/推理/回测报告 · 模拟交易 · 部署运维等，一键导入 |
+| **附件与产物** | 支持上传 Excel/PDF/Word/图片等附件（共享卷）；生成的研报 MD/PDF 自动归档到 `data/reports/stock_reports/{市场}/{股票名}/` |
+| **报告档案浏览** | 「技能中心 → 报告档案」统一列出市场文件夹 → 股票名 → 报告，支持 PDF 内联预览、上传/移动/删除与新建文件夹 |
+| **会话管理** | 多会话隔离、历史消息回填、会话重命名/删除，登录态自动续期 |
+| **IM 渠道直连** | 同一个机器人与技能池可直接暴露到微信 / QQ / 飞书 / 钉钉等 IM（见下一节） |
+
+> 一键初始化（导入技能池 + 广播到工作区并启用 + 写入量化人格）：
+>
+> ```bash
+> bash scripts/quantbot_init.sh                # 全量（技能 + 人格）
+> bash scripts/quantbot_init.sh --skills-only  # 只更新技能
+> ```
+
+### 14. IM 远程指令（微信 / QQ / 飞书 / 钉钉 …）
+
+QuantBot 内置**多渠道适配层**，把同一个机器人、同一套量化技能暴露到主流 IM；在手机上发一句话即可远程下达量化指令，结果与研报直接回推聊天窗口，不必守在电脑前。
+
+| 类别 | 已支持渠道 |
+| --- | --- |
+| **国内 IM** | 微信 Wechat · 企业微信 Wecom · **QQ** / OneBot（QQ 机器人协议）· **飞书 Feishu** · **钉钉 DingTalk** · 腾讯元宝 Yuanbao · 小艺 Xiaoyi |
+| **海外 IM** | Telegram · Discord · Slack · Mattermost · Matrix · Apple iMessage · MQTT · SIP · Twilio |
+| **本机** | Console（默认启用，无需配置） |
+
+**典型远程用法**（在微信/QQ/飞书里直接发）：
+
+```text
+深度分析 600519
+今天全市场资金流向怎么样？
+帮我回测 csi300 上近一年动量策略
+跑一下今日复盘并生成 PDF
+我的模拟账户现在持仓和收益如何？
+```
+
+**配置方式**（渠道默认全部 `disabled`，按需开启）：
+
+```bash
+# 交互式配置（会提示填 bot token / webhook / App ID 等凭证）
+docker exec -it qwenpaw qwenpaw channels config
+
+# 查看渠道状态（含 enabled/disabled 与各渠道参数）
+docker exec qwenpaw qwenpaw channels list
+
+# 主动推送一条消息到指定渠道
+docker exec qwenpaw qwenpaw channels send
+```
+
+> ⚠️ **安全提示**：QuantBot 对外端口默认 `0.0.0.0:8088` 且为**免登录模式**，请务必用云安全组/防火墙限制来源 IP；仅在单机使用时可在 `.env` 设置 `QWENPAW_BIND=127.0.0.1`。各 IM 渠道的凭据保存在 `qwenpaw-secrets` 卷中，不会进入代码仓库。
+
 ***
 
 ## 本地开发
@@ -264,12 +325,15 @@ quantmind/
 │   ├── shared/               # 跨服务共享模块 (DB/Redis/代码规范/日历)
 │   └── scripts/              # 数据同步与特征计算脚本
 ├── electron/                 # Electron + React + TypeScript 桌面/Web 前端
+├── skills/                   # QuantBot 量化技能包（SKILL.md，经 quantbot_init.sh 导入）
+├── prompts/                  # QuantBot 快捷提示词库
+├── config/qwenpaw/           # QuantBot 量化人格（SOUL / PROFILE / AGENTS）
 ├── deploy/                   # 在线部署与一键更新脚本
 ├── docs/                     # 部署、架构与外部集成说明
 ├── scripts/                  # 按用途归档的开发、校验、数据与历史脚本
 ├── db/qlib_data/             # 本地 Qlib 格式二进制与 Parquet 数据
 ├── docker/                   # Dockerfile 镜像构建配置
-└── docker-compose.yml        # 容器服务编排定义
+└── docker-compose.yml        # 容器服务编排定义（含 qwenpaw 机器人容器）
 ```
 
 > 详细文档参考：[部署指南](docs/部署指南.md) • [架构说明](docs/development/architecture.md) • [源码包部署](docs/deployment/source-bundle.md) • [通达信桥接](docs/integrations/tdx-bridge.md)
@@ -307,6 +371,8 @@ quantmind/
 * [Microsoft Qlib](https://github.com/microsoft/qlib) — 微软开源 AI 量化投资平台
 
 * [Microsoft RD-Agent](https://github.com/microsoft/RD-Agent) — 微软研发智能体框架
+
+* [QwenPaw](https://github.com/agentscope-ai/QwenPaw) — QuantBot 全能机器人底座（技能池 · 多渠道 IM · 定时任务）
 
 * [LightGBM](https://github.com/microsoft/LightGBM) / [CatBoost](https://github.com/catboost/catboost) / [XGBoost](https://github.com/dmlc/xgboost) — 经典梯度提升树算法
 
