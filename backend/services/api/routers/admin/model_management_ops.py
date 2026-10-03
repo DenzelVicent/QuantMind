@@ -15,7 +15,7 @@ except Exception:
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 
 from backend.services.api.user_app.middleware.auth import require_admin
 from backend.services.engine.inference.script_runner import InferenceScriptRunner
@@ -231,12 +231,166 @@ async def get_model_feature_catalog(
     return catalog
 
 
-@router.put("/feature-catalog", summary="更新特征字典（保存到 JSON 文件）")
+async def _sync_feature_catalog_to_db(
+    catalog: dict[str, Any], total_features: int
+) -> str:
+    """把特征字典双写进 qm_feature_* 注册表，返回写入的 version_id。
+
+    GET /feature-catalog 的第二优先级来源就是该注册表（第一优先为 QuantDB 因子目录），
+    因此后台「保存」若只写 JSON，页面仍会读到 DB 里的旧值。这里对
+    分类 / 特征定义 / 版本 / 版本成员 四表做 upsert，并清理本次被移除的成员。
+    """
+    categories = catalog.get("categories") or []
+    version_id = (
+        str(catalog.get("version_id") or catalog.get("version") or "v2.0").strip()
+        or "v2.0"
+    )
+    version_name = (
+        str(catalog.get("version_name") or catalog.get("name") or version_id).strip()
+        or version_id
+    )
+
+    category_rows: list[dict[str, Any]] = []
+    definition_rows: list[dict[str, Any]] = []
+    item_rows: list[dict[str, Any]] = []
+    feature_keys: list[str] = []
+
+    for cat in categories:
+        if not isinstance(cat, dict):
+            continue
+        cid = str(cat.get("id") or "").strip()
+        if not cid:
+            continue
+        category_rows.append(
+            {
+                "cid": cid,
+                "cname": str(cat.get("name") or cid),
+                "order": int(cat.get("order") or 0),
+                "desc": cat.get("description") or None,
+            }
+        )
+        for order_idx, feat in enumerate(cat.get("features") or []):
+            if not isinstance(feat, dict):
+                continue
+            fkey = str(feat.get("key") or "").strip()
+            if not fkey:
+                continue
+            feature_keys.append(fkey)
+            definition_rows.append(
+                {
+                    "fkey": fkey,
+                    "fname": str(
+                        feat.get("feature_name")
+                        or feat.get("name")
+                        or feat.get("description")
+                        or fkey
+                    ),
+                    "expl": str(feat.get("explanation") or ""),
+                    "formula": str(feat.get("formula") or ""),
+                    "cid": cid,
+                    "source": str(
+                        feat.get("source") or feat.get("source_table_fields") or ""
+                    ),
+                }
+            )
+            item_rows.append(
+                {
+                    "vid": version_id,
+                    "cid": cid,
+                    "fkey": fkey,
+                    "order_no": int(feat.get("order_no") or (order_idx + 1)),
+                    "enabled": bool(feat.get("enabled", True)),
+                }
+            )
+
+    if not category_rows:
+        return version_id
+
+    async with get_session() as session:
+        await session.execute(
+            text(
+                """
+                INSERT INTO qm_feature_category
+                    (category_id, category_name, sort_order, description)
+                VALUES (:cid, :cname, :order, :desc)
+                ON CONFLICT (category_id) DO UPDATE SET
+                    category_name = EXCLUDED.category_name,
+                    sort_order = EXCLUDED.sort_order,
+                    description = EXCLUDED.description
+                """
+            ),
+            category_rows,
+        )
+
+        await session.execute(
+            text(
+                """
+                INSERT INTO qm_feature_definition
+                    (feature_key, feature_name, explanation, formula,
+                     category_id, source_table_fields)
+                VALUES (:fkey, :fname, :expl, :formula, :cid, :source)
+                ON CONFLICT (feature_key) DO UPDATE SET
+                    feature_name = EXCLUDED.feature_name,
+                    explanation = EXCLUDED.explanation,
+                    formula = EXCLUDED.formula,
+                    category_id = EXCLUDED.category_id,
+                    source_table_fields = EXCLUDED.source_table_fields,
+                    updated_at = now()
+                """
+            ),
+            definition_rows,
+        )
+
+        await session.execute(
+            text(
+                """
+                INSERT INTO qm_feature_set_version
+                    (version_id, version_name, status, feature_count, effective_at)
+                VALUES (:vid, :vname, 'active', :cnt, NOW())
+                ON CONFLICT (version_id) DO UPDATE SET
+                    version_name = EXCLUDED.version_name,
+                    status = 'active',
+                    feature_count = EXCLUDED.feature_count,
+                    effective_at = NOW()
+                """
+            ),
+            {"vid": version_id, "vname": version_name, "cnt": total_features},
+        )
+
+        await session.execute(
+            text(
+                """
+                INSERT INTO qm_feature_set_item
+                    (version_id, category_id, feature_key, order_no, enabled)
+                VALUES (:vid, :cid, :fkey, :order_no, :enabled)
+                ON CONFLICT (version_id, feature_key) DO UPDATE SET
+                    category_id = EXCLUDED.category_id,
+                    order_no = EXCLUDED.order_no,
+                    enabled = EXCLUDED.enabled
+                """
+            ),
+            item_rows,
+        )
+
+        # 清理本次保存中已被移除的成员，否则旧特征仍会被 GET 读到
+        if feature_keys:
+            await session.execute(
+                text(
+                    "DELETE FROM qm_feature_set_item "
+                    "WHERE version_id = :vid AND feature_key NOT IN :keys"
+                ).bindparams(bindparam("keys", expanding=True)),
+                {"vid": version_id, "keys": feature_keys},
+            )
+
+    return version_id
+
+
+@router.put("/feature-catalog", summary="更新特征字典（JSON 文件 + DB 注册表双写）")
 async def update_feature_catalog(
     catalog: dict[str, Any],
     current_user: dict = Depends(require_admin),
 ):
-    """保存特征字典到 JSON 文件，前端训练页下次加载时自动生效。"""
+    """保存特征字典：写入 JSON 文件，并同步写入 DB 注册表，前端下次加载自动生效。"""
     categories = catalog.get("categories")
     if not isinstance(categories, list):
         raise HTTPException(status_code=400, detail="categories must be a list")
@@ -280,7 +434,21 @@ async def update_feature_catalog(
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(catalog, ensure_ascii=False, indent=2), encoding="utf-8")
-    return {"status": "ok", "feature_count": total_features, "path": str(path)}
+
+    try:
+        version_id = await _sync_feature_catalog_to_db(catalog, total_features)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"特征字典已写入 JSON 文件，但写入数据库注册表失败: {exc}",
+        ) from exc
+
+    return {
+        "status": "ok",
+        "feature_count": total_features,
+        "version_id": version_id,
+        "path": str(path),
+    }
 
 
 @router.get("/data-status", summary="查看当前数据状态（Qlib + 特征快照）")
