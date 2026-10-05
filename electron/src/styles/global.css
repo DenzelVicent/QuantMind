@@ -963,8 +963,15 @@ html.platform-win32.os-win10 .module-grid-container {
   border-radius: 8px;
 }
 
+/* affix 包裹（带前后缀图标）的输入框：外层 32px flex 垂直居中，
+   内层 input 高度交给行高，禁止再写死 30px（会把文字顶出中心线） */
+.admin-page .ant-input-affix-wrapper {
+  display: inline-flex;
+  align-items: center;
+}
+
 .admin-page .ant-input-affix-wrapper .ant-input {
-  height: 30px;
+  height: auto;
 }
 
 .admin-page .ant-input-number-input {

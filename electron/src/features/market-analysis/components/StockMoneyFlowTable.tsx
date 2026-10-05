@@ -340,10 +340,10 @@ export const StockMoneyFlowTable: React.FC<StockMoneyFlowTableProps> = ({
       dataIndex: 'symbol',
       key: 'symbol',
       width: 145,
-      align: 'left',
+      align: 'center',
       render: (symbol, record) => (
-        <div className="flex items-center gap-2 py-0.5 whitespace-nowrap pl-1">
-          <div className="flex flex-col text-left justify-center">
+        <div className="flex items-center justify-center gap-2 py-0.5 whitespace-nowrap">
+          <div className="flex flex-col items-center justify-center">
             <div className="font-extrabold text-slate-800 text-[11px] leading-tight flex items-center gap-0.5">
               <span>{record.name}</span>
               <ArrowUpRight className="w-2.5 h-2.5 text-slate-400 flex-shrink-0" />

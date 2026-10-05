@@ -437,11 +437,15 @@ export const AdminFeatureCatalog: React.FC = () => {
 
   // ─── 表格列定义 ──────────────────────────────────────────────────────────
 
+  // 右侧表格「市场」列标签会换行撑高行，统一让正文文字顶部对齐，避免各行文字错位
+  const topCell = () => ({ style: { verticalAlign: 'top' as const } });
+
   const featureColumns: ColumnsType<AdminModelFeatureItem> = [
     {
       title: 'Key',
       dataIndex: 'key',
       width: 180,
+      onCell: topCell,
       render: (key: string) => <Text code className="text-xs">{key}</Text>,
     },
     {
@@ -449,6 +453,7 @@ export const AdminFeatureCatalog: React.FC = () => {
       dataIndex: 'feature_name',
       width: 180,
       ellipsis: { showTitle: false },
+      onCell: topCell,
       render: (name: string) => (
         <Tooltip title={name} placement="topLeft">
           <span className="text-xs font-medium">{name}</span>
@@ -460,6 +465,7 @@ export const AdminFeatureCatalog: React.FC = () => {
       dataIndex: 'explanation',
       width: 260,
       ellipsis: { showTitle: false },
+      onCell: topCell,
       render: (v: string | undefined, record) => v ? (
         <Tooltip title={v} placement="topLeft">
           <span className="text-xs text-slate-600">{v}</span>
@@ -475,6 +481,7 @@ export const AdminFeatureCatalog: React.FC = () => {
       dataIndex: 'formula',
       width: 180,
       ellipsis: { showTitle: false },
+      onCell: topCell,
       render: (v: string) => v ? (
         <Tooltip title={v} placement="topLeft">
           <Text type="secondary" className="text-xs font-mono">{v}</Text>
@@ -486,6 +493,7 @@ export const AdminFeatureCatalog: React.FC = () => {
       dataIndex: 'source_table_fields',
       width: 180,
       ellipsis: { showTitle: false },
+      onCell: topCell,
       render: (v: string) => v ? (
         <Tooltip title={v} placement="topLeft">
           <Text type="secondary" className="text-xs font-mono">{v}</Text>
@@ -496,6 +504,7 @@ export const AdminFeatureCatalog: React.FC = () => {
       title: '市场',
       dataIndex: 'markets',
       width: 170,
+      onCell: topCell,
       render: (markets: string[] | undefined) => {
         const list = markets && markets.length > 0 ? markets : ALL_MARKETS;
         return (
@@ -513,6 +522,7 @@ export const AdminFeatureCatalog: React.FC = () => {
       dataIndex: 'enabled',
       width: 70,
       align: 'center',
+      onCell: topCell,
       render: (enabled: boolean, record) => (
         <Switch
           size="small"
@@ -526,6 +536,7 @@ export const AdminFeatureCatalog: React.FC = () => {
       width: 90,
       align: 'center',
       fixed: 'right' as const,
+      onCell: topCell,
       render: (_: unknown, record) => (
         <Space size="small">
           <Tooltip title="编辑">
