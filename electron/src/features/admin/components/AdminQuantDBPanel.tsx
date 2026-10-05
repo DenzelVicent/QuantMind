@@ -7,7 +7,7 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import {
     ApiOutlined, CheckCircleFilled, CloseCircleFilled, CloudDownloadOutlined,
-    DatabaseOutlined, FileSearchOutlined, KeyOutlined, ReloadOutlined,
+    DatabaseOutlined, FileSearchOutlined, GlobalOutlined, ReloadOutlined,
     SettingOutlined, StopOutlined, CloudSyncOutlined,
 } from '@ant-design/icons';
 import {
@@ -26,6 +26,7 @@ const { Text } = Typography;
 const USAGE_WARN_PERCENT = 70;
 const USAGE_DANGER_PERCENT = 90;
 const LOW_QUOTA_GB = 5;
+const QUANTDB_REGISTER_URL = 'https://www.quantdb.cn/index.html';
 
 interface QuantDBInfo {
     installed: boolean;
@@ -111,13 +112,50 @@ export const AdminQuantDBPanel: React.FC = () => {
 
     return (
         <div className="space-y-5">
-            {/* ① 数据就绪 — 紧凑状态 + 显眼按钮（去引导化） */}
+            {/* ① 数据初始化 — 首次全量落盘的两个动作 */}
             <SectionCard
                 index="01"
-                title="数据就绪"
-                desc="环境与授权状态 · 一键落盘"
+                title="数据初始化"
+                desc="首次全量落盘 · 后台执行可断点续传"
                 icon={<CloudDownloadOutlined />}
                 tone="indigo"
+            >
+                <div className="flex flex-wrap items-center gap-3 bg-white rounded-2xl border border-slate-100 p-3">
+                    <Button
+                        type="primary"
+                        size="large"
+                        icon={<CloudDownloadOutlined />}
+                        onClick={() => setInitOpen(true)}
+                        className="rounded-xl font-black shadow-sm"
+                        style={{ height: 44, padding: '0 22px', fontSize: 14 }}
+                    >
+                        初始化数据
+                    </Button>
+                    <Button
+                        size="large"
+                        icon={<FileSearchOutlined />}
+                        onClick={() => setScanOpen(true)}
+                        className="rounded-xl font-bold border-slate-200 bg-white"
+                        style={{ height: 44, padding: '0 22px', fontSize: 14 }}
+                    >
+                        本地扫描
+                    </Button>
+                    <span className="text-xs text-slate-400 leading-relaxed">
+                        免流量拉取 56GB 全量（ModelScope 断点续传）或扫描已有离线包建增量
+                    </span>
+                </div>
+                <div className="text-[11px] text-slate-400 mt-2 px-1">
+                    已有网盘/归档包建议先 <b className="text-slate-600">本地扫描</b> 再走增量；无本地数据直接 <b className="text-slate-600">初始化数据</b>。完成后到「数据更新」检查差异并同步增量。
+                </div>
+            </SectionCard>
+
+            {/* ② 数据更新 — QuantDB 状态/流量 + 注册入口 + 检查更新与增量同步 */}
+            <SectionCard
+                index="02"
+                title="数据更新"
+                desc="QuantDB 状态与流量 · 数据集检查更新与增量同步"
+                icon={<CloudSyncOutlined />}
+                tone="blue"
                 extra={
                     <Space size="small">
                         <Tag color={info?.connected ? 'green' : 'red'} className="m-0 rounded-full px-2.5 font-bold border-none">
@@ -131,7 +169,7 @@ export const AdminQuantDBPanel: React.FC = () => {
             >
                 {info?.error && <Alert type="error" message={info.error} className="mb-4 rounded-xl" showIcon />}
 
-                {/* 紧凑状态行 */}
+                {/* 状态行 */}
                 <div className="flex flex-wrap items-center gap-2 mb-3">
                     <Tag color={info?.installed ? 'green' : 'red'} icon={info?.installed ? <CheckCircleFilled /> : <CloseCircleFilled />} className="rounded-full font-bold m-0">
                         {info?.installed ? `已安装${info.version ? ` v${info.version}` : ''}` : '未安装 SDK'}
@@ -145,6 +183,14 @@ export const AdminQuantDBPanel: React.FC = () => {
                             <Text type="secondary" className="text-xs ml-1">{info.account.email}</Text>
                         </span>
                     )}
+                    <Button
+                        size="small"
+                        icon={<GlobalOutlined />}
+                        onClick={() => window.open(QUANTDB_REGISTER_URL, '_blank')}
+                        className="rounded-lg font-bold text-xs ml-auto"
+                    >
+                        注册 / 官网
+                    </Button>
                     {info?.api_key_configured && (
                         <Button type="link" size="small" className="p-0 text-xs font-bold" onClick={() => navigate('/user-center?tab=data-platform')}>
                             去个人中心 →
@@ -174,44 +220,6 @@ export const AdminQuantDBPanel: React.FC = () => {
                     </div>
                 )}
 
-                {/* 显眼操作区 */}
-                <div className="flex flex-wrap items-center gap-3 bg-white rounded-2xl border border-slate-100 p-3">
-                    <Button
-                        type="primary"
-                        size="large"
-                        icon={<CloudDownloadOutlined />}
-                        onClick={() => setInitOpen(true)}
-                        className="rounded-xl font-black shadow-sm"
-                        style={{ height: 44, padding: '0 22px', fontSize: 14 }}
-                    >
-                        初始化数据
-                    </Button>
-                    <Button
-                        size="large"
-                        icon={<FileSearchOutlined />}
-                        onClick={() => setScanOpen(true)}
-                        className="rounded-xl font-bold border-slate-200 bg-white"
-                        style={{ height: 44, padding: '0 22px', fontSize: 14 }}
-                    >
-                        本地扫描
-                    </Button>
-                    <span className="text-xs text-slate-400 leading-relaxed">
-                        免流量拉取 56GB 全量（ModelScope 断点续传）或扫描已有离线包建增量
-                    </span>
-                </div>
-                <div className="text-[11px] text-slate-400 mt-2 px-1">
-                    已有网盘/归档包建议先 <b className="text-slate-600">本地扫描</b> 再走增量；无本地数据直接 <b className="text-slate-600">初始化数据</b>。
-                </div>
-            </SectionCard>
-
-            {/* ② 数据同步 */}
-            <SectionCard
-                index="02"
-                title="数据同步"
-                desc="数据集目录 · 增量同步 · 后台任务"
-                icon={<DatabaseOutlined />}
-                tone="blue"
-            >
                 <QuantDBCatalogPanel
                     connected={Boolean(info?.connected)}
                     onPreview={setPreviewDataset}
@@ -251,20 +259,6 @@ export const AdminQuantDBPanel: React.FC = () => {
                             ))}
                             {sources.length === 0 && <Text type="secondary" className="text-xs">加载中...</Text>}
                         </div>
-                    </div>
-
-                    <div className="rounded-2xl border border-slate-100 bg-white p-4 flex items-center justify-between">
-                        <Space size="middle">
-                            <KeyOutlined className="text-blue-500" />
-                            <Text className="text-xs font-bold">API Key 授权状态</Text>
-                            <Tag color={info?.api_key_configured ? 'green' : 'red'} icon={<ApiOutlined />} className="m-0 rounded-full font-bold">
-                                {info?.api_key_configured ? '已授权' : '未配置'}
-                            </Tag>
-                            {info?.account?.username && <Text type="secondary" className="text-xs">账户 <Text code className="text-xs">{info.account.username}</Text></Text>}
-                        </Space>
-                        <Button type="link" size="small" className="text-xs font-bold p-0" onClick={() => navigate('/user-center?tab=data-platform')}>
-                            前往个人中心更新 →
-                        </Button>
                     </div>
 
                     <SyncSchedulePanel market="A" defaultDays={5} />
