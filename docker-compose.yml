@@ -25,7 +25,7 @@ services:
       retries: 5
     restart: unless-stopped
     expose:
-      - "127.0.0.1:5432:5432"
+      - "5432:5432"
     networks:
       - quantmind-net
 
@@ -34,7 +34,7 @@ services:
     image: redis:7-alpine
     container_name: quantmind-redis
     expose:
-      - "127.0.0.1:6379:6379"
+      - "6379:6379"
     # maxmemory-policy 必须为 noeviction：本实例同时承载 Celery broker/result backend，
     # allkeys-lru 会在内存压力下静默淘汰队列消息（定时任务表现为"没跑"）。
     command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy noeviction --databases 16 --bind 0.0.0.0
@@ -613,7 +613,7 @@ services:
         APT_MIRROR: ${APT_MIRROR:-mirrors.aliyun.com}
     container_name: quantmind-data-gateway
     expose:
-      - "127.0.0.1:${DATA_GATEWAY_PORT:-8004}:8004"
+      - "${DATA_GATEWAY_PORT:-8004}:8004"
     environment:
       - TZ=Asia/Shanghai
       - PYTHONPATH=/app
@@ -634,7 +634,7 @@ services:
     image: lcomplete/huntly:latest
     container_name: quantmind-huntly
     expose:
-      - "127.0.0.1:${HUNTLY_PORT:-8090}:80"
+      - "${HUNTLY_PORT:-8090}:80"
     volumes:
       - ./data/huntly:/data
     environment:
@@ -658,7 +658,7 @@ services:
     image: diygod/rsshub:latest
     container_name: quantmind-rsshub
     expose:
-      - "127.0.0.1:${RSSHUB_PORT:-1200}:1200"
+      - "${RSSHUB_PORT:-1200}:1200"
     environment:
       - NODE_ENV=production
       - TZ=Asia/Shanghai
@@ -700,7 +700,7 @@ services:
       # 默认对外绑定 0.0.0.0：QuantBot 页面由浏览器/Electron 直连 <宿主>:8088，
       # 回环绑定会导致外部无法访问。qwenpaw 为免登录模式，请配合云安全组/防火墙
       # 限制来源 IP；确需仅本机访问的机器在 .env 设置 QWENPAW_BIND=127.0.0.1。
-      - "${QWENPAW_BIND:-0.0.0.0}:${QWENPAW_PORT:-8088}:8088"
+      - "${QWENPAW_PORT:-8088}:8088"
     networks:
       quantmind-net:
         aliases:
@@ -729,7 +729,7 @@ services:
       - QUANTMIND_ENGINE_URL=http://quantmind:8001
       - QUANTMIND_USER_ID=qwenpaw
       - QWENPAW_SHARED_FILES_DIR=/qwenpaw-shared
-      - QWENPAW_CORS_ORIGINS=http://192.168.31.68:3080,http://localhost:3080,http://127.0.0.1:3080,http://192.168.31.68:8088,http://localhost:8088,http://127.0.0.1:8088
+      - QWENPAW_CORS_ORIGINS=http://localhost:3080,http://127.0.0.1:3080,http://localhost:8088,http://127.0.0.1:8088
       # 远程数据源（用于数据同步脚本）
       - SOURCE_DATABASE_URL=${SOURCE_DATABASE_URL:-postgresql://user:pass@localhost:5432/quantmind}
       - SYNC_MAX_DAYS=30
@@ -775,10 +775,10 @@ services:
       TRADING_MODE: ${IB_TRADING_MODE:-paper}
       VNC_SERVER_PASSWORD: ${IB_VNC_PASSWORD:-quantmind-vnc}
       TWOFA_TIMEOUT_ACTION: restart
-    expose:
-      - "127.0.0.1:4001:4001"
-      - "127.0.0.1:4002:4002"
-      - "127.0.0.1:15901:5901"
+    ports:
+      - "4001:4001"
+      - "4002:4002"
+      - "15901:5901"
     restart: unless-stopped
     networks:
       - quantmind-net
