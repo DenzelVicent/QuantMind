@@ -13,8 +13,8 @@ TZ=Asia/Shanghai
 # 安全配置（生产环境必须修改！）
 # ============================================
 # 建议使用: openssl rand -hex 32
-SECRET_KEY=CHANGE_ME_GENERATE_YOUR_OWN_SECRET_KEY
-JWT_SECRET_KEY=CHANGE_ME_GENERATE_YOUR_OWN_JWT_SECRET
+SECRET_KEY=$(openssl rand -hex 32)
+JWT_SECRET_KEY=$(openssl rand -hex 32)
 
 # RD-Agent 内部调用密钥（可选）
 INTERNAL_CALL_SECRET=quantmind-internal-secret
@@ -26,7 +26,7 @@ DB_HOST=db
 DB_PORT=5432
 DB_NAME=quantmind
 DB_USER=quantmind
-DB_PASSWORD=CHANGE_ME_DB_PASSWORD
+DB_PASSWORD=$(openssl rand -hex 24)
 DATABASE_URL=postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}
 
 # 远程数据源（用于从官方数据库拉取增量数据）
