@@ -17,8 +17,8 @@ FROM docker.1ms.run/library/python:3.10-slim-bookworm
 # torch 版本：gpu=完整 CUDA（AutoDL 节点推荐，需 nvidia-container-toolkit）
 #            cpu=CPU 版（更快、更小）
 ARG TORCH_DEVICE=gpu
-ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple/
-ARG PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn
+ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+ARG PIP_TRUSTED_HOST=mirrors.aliyun.com
 # CPU 版 torch 下载源（必须是「索引型」地址，见下方 CPU 分支说明）。
 ARG TORCH_CPU_INDEX_URL=https://download.pytorch.org/whl/cpu
 

@@ -16,7 +16,7 @@ WORKDIR /workspace/qlib
 
 RUN git reset c9ed050ef034fe6519c14b59f3d207abcb693282 --hard
 
-RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple
 RUN python -m pip install --upgrade cython
 RUN python -m pip install -e .
 

@@ -111,7 +111,7 @@ install_runtime() {
     # 离线环境可能无 PyPI 访问，安装失败仅告警，不中断整体部署。
     if [[ ${QUANTMIND_SKIP_ANALYSIS_TOOLS:-false} != true ]]; then
         log '步骤 1/8：安装 parquet 分析工具（pandas/duckdb/pyarrow）'
-        local pip_index="${QUANTMIND_PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}"
+        local pip_index="${QUANTMIND_PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}"
         local pip_fallback="${QUANTMIND_PIP_FALLBACK_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}"
         log "使用 PyPI 镜像：$pip_index"
         python3 -m pip install --break-system-packages -i "$pip_index" duckdb pyarrow \
@@ -429,7 +429,7 @@ configure_qwenpaw_runtime() {
         log 'QwenPaw venv 已包含 reportlab，跳过安装'
     else
         docker exec qwenpaw sh -c \
-            '/app/venv/bin/pip install -q -i https://pypi.tuna.tsinghua.edu.cn/simple reportlab' \
+            '/app/venv/bin/pip install -q -i https://mirrors.aliyun.com/pypi/simple reportlab' \
             || docker exec qwenpaw sh -c \
             '/app/venv/bin/pip install -q -i https://mirrors.aliyun.com/pypi/simple/ reportlab' \
             || docker exec qwenpaw sh -c '/app/venv/bin/pip install -q reportlab' \

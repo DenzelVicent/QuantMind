@@ -1,10 +1,10 @@
 FROM python:3.11-slim
 
 # APT 国内镜像源（构建时可经 build-arg 覆盖）
-ARG APT_MIRROR=mirrors.tuna.tsinghua.edu.cn
+ARG APT_MIRROR=mirrors.aliyun.com
 
-ENV PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple/ \
-    PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn
+ENV PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/ \
+    PIP_TRUSTED_HOST=mirrors.aliyun.com
 
 WORKDIR /app
 

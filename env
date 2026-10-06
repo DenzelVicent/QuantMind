@@ -1,0 +1,255 @@
+# QuantMind OSS Edition 环境变量配置模板
+# 复制此文件为 .env 并修改相应配置：
+#   cp .env.example .env
+
+# ============================================
+# 基础配置
+# ============================================
+APP_EDITION=oss
+APP_ENV=production
+TZ=Asia/Shanghai
+
+# ============================================
+# 安全配置（生产环境必须修改！）
+# ============================================
+# 建议使用: openssl rand -hex 32
+SECRET_KEY=CHANGE_ME_GENERATE_YOUR_OWN_SECRET_KEY
+JWT_SECRET_KEY=CHANGE_ME_GENERATE_YOUR_OWN_JWT_SECRET
+
+# RD-Agent 内部调用密钥（可选）
+INTERNAL_CALL_SECRET=quantmind-internal-secret
+
+# ============================================
+# 数据库配置
+# ============================================
+DB_HOST=db
+DB_PORT=5432
+DB_NAME=quantmind
+DB_USER=quantmind
+DB_PASSWORD=CHANGE_ME_DB_PASSWORD
+DATABASE_URL=postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}
+
+# 远程数据源（用于从官方数据库拉取增量数据）
+# 留空则只使用本地数据
+SOURCE_DATABASE_URL=
+
+# ============================================
+# Redis 配置
+# ============================================
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_PASSWORD=
+
+# 实时行情 Redis（模拟盘成交只接受此源的新鲜行情；默认全市场库）
+REMOTE_QUOTE_REDIS_HOST=quantmindai.cn
+REMOTE_QUOTE_REDIS_PORT=6379
+REMOTE_QUOTE_REDIS_PASSWORD=quantmind2026
+REMOTE_QUOTE_REDIS_DB=3
+SIM_REDIS_QUOTE_MAX_AGE_SEC=300
+SIM_LIQUIDITY_WINDOW_SEC=60
+SIMULATION_MAX_PARTICIPATION_RATE=0.10
+SIM_LIQUIDITY_UNVERIFIED_MAX_NOTIONAL=100000
+
+# ============================================
+# 存储配置
+# ============================================
+STORAGE_MODE=local
+STORAGE_ROOT=/data
+
+# ============================================
+# 融资融券股票池路径（容器内路径）
+# ============================================
+MARGIN_STOCK_POOL_PATH=/data/融资融券.json
+
+# ============================================
+# 服务端口
+# ============================================
+API_PORT=8000
+ENGINE_PORT=8001
+TRADE_PORT=8002
+STREAM_PORT=8003
+
+# ============================================
+# Worker 配置
+# ============================================
+API_WORKERS=1
+ENGINE_WORKERS=1
+TRADE_WORKERS=1
+STREAM_WORKERS=1
+
+# ============================================
+# 服务间通信 URL（OSS 单镜像模式使用 localhost）
+# ============================================
+TRADE_SERVICE_URL=http://127.0.0.1:8002
+ENGINE_SERVICE_URL=http://127.0.0.1:8001
+AI_IDE_SERVICE_URL=http://127.0.0.1:8001
+STREAM_SERVICE_URL=http://127.0.0.1:8003
+MARKET_DATA_SERVICE_URL=http://127.0.0.1:8003
+STRATEGY_SERVICE_URL=http://127.0.0.1:8001
+PORTFOLIO_SERVICE_URL=http://127.0.0.1:8002
+USER_SERVICE_URL=http://127.0.0.1:8002
+REAL_TRADING_SERVICE_URL=http://127.0.0.1:8002
+
+# ============================================
+# 调试配置
+# ============================================
+DEBUG=false
+LOG_LEVEL=INFO
+
+# ============================================
+# 策略模板目录
+# ============================================
+STRATEGY_TEMPLATES_DIR=/app/strategy_templates
+
+# ============================================
+# 回测结果存储目录
+# ============================================
+QLIB_BACKTEST_RESULT_DIR=/data/backtest_results
+
+# ============================================
+# 模型训练配置（Docker 编排）
+# ============================================
+TRAINING_IMAGE=quantmind-oss:latest
+TRAINING_DOCKER_NETWORK=quantmind_quantmind-net
+HOST_PROJECT_PATH=.
+QUANTMIND_API_BASE_URL=http://quantmind:8000
+
+# ============================================
+# AI 模型 API Key（必须配置！）
+# ============================================
+# AI LLM API Key（可选，仅影响 AI 策略/因子挖掘/投研功能）
+# 不配置时平台核心功能（数据/回测/训练/选股）仍可用，AI 功能会提示需配置 Key
+# ============================================
+
+# 方案 1: Qwen / DashScope API Key（用于 AI 策略功能）
+# 获取地址: https://dashscope.console.aliyun.com/
+DASHSCOPE_API_KEY=
+
+# 方案 2: Qwen API Key（同上，别名）
+QWEN_API_KEY=
+
+# 方案 3: DeepSeek API Key（可选）
+# 获取地址: https://platform.deepseek.com/
+# 说明：模型/地址/密钥以「个人中心 → AI 服务配置」为准，此处 env 仅作无用户配置时兜底。
+AI_IDE_LLM_API_KEY=
+AI_IDE_LLM_BASE_URL=
+
+# ============================================
+# 量化因子 AI Key（可选）
+# ============================================
+# 用于因子演化、智能策略生成等功能（以用户「AI 服务配置」为准，env 兜底）
+# DeepSeek: OpenAI 兼容 https://api.deepseek.com / Anthropic 兼容 https://api.deepseek.com/anthropic
+DEEPSEEK_API_KEY=
+DEEPSEEK_BASE_URL=
+# OPENAI_API_KEY=sk-YOUR_OPENAI_API_KEY_HERE
+
+# 因子去重 embedding：默认一律不配置，embedding 跟随用户「AI 服务配置」/chat 端点。
+# 只有需要独立 embedding 供应商时才取消注释填写 —— 保持等号留空会被注入成空串，
+# 反而屏蔽回落（详见 docker-compose.yml 内该段注释）。
+# legacy alphaagent（a_share）路径：
+# EMBEDDING_MODEL=<供应商 embedding 模型名>
+# EMBEDDING_BASE_URL=https://<provider-host>/v1
+# EMBEDDING_API_KEY=<provider key>
+# RD-Agent（多市场）路径：模型名需带 litellm_proxy/ 前缀
+# EMBEDDING_MODEL=litellm_proxy/<模型名>
+# LITELLM_PROXY_API_KEY=<provider key>
+# LITELLM_PROXY_API_BASE=https://<provider-host>/v1
+
+# ============================================
+# QuantBot / QwenPaw 配置
+# ============================================
+# QwenPaw 服务地址（Docker 网络内通过容器名访问）
+QWENPAW_BASE_URL=http://qwenpaw:8088
+QWENPAW_SHARED_FILES_DIR=/qwenpaw-shared
+# QwenPaw 宿主机端口与绑定地址（默认 0.0.0.0 开放外部直连；QuantBot 页面由
+# 浏览器/Electron 直连 <宿主>:8088。qwenpaw 为免登录模式，建议用云安全组/
+# 防火墙限制来源 IP；确需仅本机访问则设为 127.0.0.1）
+QWENPAW_PORT=8088
+QWENPAW_BIND=0.0.0.0
+
+# QwenPaw 认证信息（可选，如果 QwenPaw 启用了认证）
+QWENPAW_AUTH_USERNAME=
+QWENPAW_AUTH_PASSWORD=
+
+# ============================================
+# 市值单位配置
+# ============================================
+# 数据库存储单位为元，1亿=100,000,000
+AI_STRATEGY_TOTAL_MV_PER_YI=100000000.0
+
+# ============================================
+# AutoDL 远程 GPU 训练（可选，留空则仅本地 CPU 训练）
+# ============================================
+# 推荐：AutoDL 官方 Python 实例用 exec_mode=native_python（无嵌套 Docker）。
+# 节点写在 config/training_nodes.yaml（gitignore），脚本见 deploy/autodl/。
+# 完整步骤：docs/部署指南.md 第十一节。
+#
+# 协调机公网 IP，供 AutoDL 训练结束回调 API（必填才能远程完成注册）
+TRAINING_MASTER_HOST=
+# 远端原生 Python（native_python 模式）
+TRAINING_AUTODL_PYTHON=/root/miniconda3/bin/python
+TRAINING_AUTODL_EXEC_MODE=native_python
+TRAINING_AUTODL_QUANTDB_DIR=/root/autodl-fs/quantdb
+#
+# 【推荐】多节点配置在 config/training_nodes.yaml 声明（可配置多台，
+#   后台「训练服务 → AutoDL 节点」可实时查看每台 CPU/GPU/内存/训练进度）。
+#
+# 以下单节点环境变量为向后兼容（YAML 未配置时使用）：
+TRAINING_AUTODL_HOST=
+TRAINING_AUTODL_SSH_PORT=22
+TRAINING_AUTODL_USER=root
+# SSH 认证：私钥路径或密码二选一
+TRAINING_AUTODL_SSH_KEY=
+TRAINING_AUTODL_SSH_PASSWORD=
+# 远端工作目录（特征快照/配置/训练产物落盘处）
+TRAINING_AUTODL_WORK_DIR=/workspace
+# 远端训练镜像（需先在 AutoDL 节点构建并部署）
+TRAINING_AUTODL_DOCKER_IMAGE=quantmind-train:latest
+TRAINING_AUTODL_NODE_NAME=AutoDL GPU
+# 远端容器挂载 GPU 数量（all=全部；节点需装 nvidia-container-toolkit）
+TRAINING_AUTODL_GPUS=all
+
+# ============================================
+# 通达信 (TDX) 实盘交易桥配置（内网桥行情已下线，默认关闭）
+# ============================================
+# 启用实盘交易 (false=仅模拟盘, true=REAL/SHADOW 订单走通达信)
+ENABLE_REAL_TRADING=false
+# 实盘 broker 类型 (tdx | bridge | redis | qmt)
+REAL_BROKER_TYPE=qmt_exec
+# 通达信交易桥地址（可选；行情不再依赖此桥）
+TDX_BRIDGE_URL=
+# 通达信交易桥鉴权 token (与 Windows 侧 BRIDGE_AUTH_TOKEN 一致)
+TDX_BRIDGE_TOKEN=
+# 通达信资金账号 (留空则用默认账号 account_id=0)
+TDX_ACCOUNT=
+# 账号类型: stock | credit | future | option
+TDX_ACCOUNT_TYPE=stock
+
+# ============================================
+# 大 QMT 执行端（big-convert RPC）+ 模拟盘真单镜像
+# ============================================
+# 执行端开关（页面「券商实盘接入 → 大 QMT(执行端)」写入的配置优先于这里）
+QMT_EXEC_ENABLED=false
+QMT_EXEC_ACCOUNT_ID=
+# STOCK=普通 | CREDIT=信用
+QMT_EXEC_ACCOUNT_TYPE=STOCK
+QMT_EXEC_STRATEGY_NAME=quantmind
+QMT_EXEC_TIMEOUT=10
+# QMT 那台 Windows 上的 RPC Redis（big-convert 服务端通道）
+QMT_EXEC_REDIS_HOST=
+QMT_EXEC_REDIS_PORT=6380
+QMT_EXEC_REDIS_DB=0
+QMT_EXEC_REDIS_PASSWORD=
+# 账户快照新鲜度告警：交易时段内超过阈值未成功落库 → 站内通知（冷却期内只报一次）
+QMT_SYNC_STALE_ALERT_SECONDS=300
+QMT_SYNC_STALE_ALERT_COOLDOWN_SECONDS=3600
+
+# 模拟盘 → 真单镜像（默认关；开启后仅白名单策略会下单，并受下列限额约束）
+SIMULATION_MIRROR_TO_REAL=false
+MIRROR_MAX_ORDER_VALUE=10000
+MIRROR_MAX_DAILY_VALUE=50000
+MIRROR_MAX_DAILY_SYMBOLS=5
+MIRROR_MAX_DAILY_ORDERS=20
+MIRROR_MAX_SLIPPAGE_PCT=0.02
+MIRROR_MAX_CONSECUTIVE_REJECTS=3
+MIRROR_QUEUE_OUTSIDE_HOURS=true

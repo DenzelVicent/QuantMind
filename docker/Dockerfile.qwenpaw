@@ -8,7 +8,7 @@ FROM agentscope/qwenpaw:latest
 
 # reportlab：安装到 QwenPaw 自带 venv（容器内 python 即 /app/venv/bin/python）
 RUN /app/venv/bin/pip install --no-cache-dir \
-    -i https://pypi.tuna.tsinghua.edu.cn/simple/ reportlab
+    -i https://mirrors.aliyun.com/pypi/simple/ reportlab
 
 # docker CLI 静态二进制（版本与宿主机 Docker Engine 保持一致）
 ARG DOCKER_CLI_VERSION=29.7.2

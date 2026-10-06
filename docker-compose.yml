@@ -24,7 +24,7 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
-    ports:
+    expose:
       - "127.0.0.1:5432:5432"
     networks:
       - quantmind-net
@@ -33,7 +33,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: quantmind-redis
-    ports:
+    expose:
       - "127.0.0.1:6379:6379"
     # maxmemory-policy 必须为 noeviction：本实例同时承载 Celery broker/result backend，
     # allkeys-lru 会在内存压力下静默淘汰队列消息（定时任务表现为"没跑"）。
@@ -62,7 +62,7 @@ services:
         TORCH_DEVICE: ${TORCH_DEVICE:-cpu}
         TORCH_CPU_INDEX_URL: ${TORCH_CPU_INDEX_URL:-https://download.pytorch.org/whl/cpu}
         QM_REQ_SHA: ${QM_REQ_SHA:-unknown}
-        APT_MIRROR: ${APT_MIRROR:-mirrors.tuna.tsinghua.edu.cn}
+        APT_MIRROR: ${APT_MIRROR:-mirrors.aliyun.com}
     platform: linux/amd64
     # GPU 直通：宿主机已安装 nvidia-container-toolkit 时可开启
     # deploy:
@@ -610,9 +610,9 @@ services:
       context: .
       dockerfile: docker/Dockerfile.data-gateway
       args:
-        APT_MIRROR: ${APT_MIRROR:-mirrors.tuna.tsinghua.edu.cn}
+        APT_MIRROR: ${APT_MIRROR:-mirrors.aliyun.com}
     container_name: quantmind-data-gateway
-    ports:
+    expose:
       - "127.0.0.1:${DATA_GATEWAY_PORT:-8004}:8004"
     environment:
       - TZ=Asia/Shanghai
@@ -633,7 +633,7 @@ services:
   huntly:
     image: lcomplete/huntly:latest
     container_name: quantmind-huntly
-    ports:
+    expose:
       - "127.0.0.1:${HUNTLY_PORT:-8090}:80"
     volumes:
       - ./data/huntly:/data
@@ -657,7 +657,7 @@ services:
   rsshub:
     image: diygod/rsshub:latest
     container_name: quantmind-rsshub
-    ports:
+    expose:
       - "127.0.0.1:${RSSHUB_PORT:-1200}:1200"
     environment:
       - NODE_ENV=production
@@ -775,7 +775,7 @@ services:
       TRADING_MODE: ${IB_TRADING_MODE:-paper}
       VNC_SERVER_PASSWORD: ${IB_VNC_PASSWORD:-quantmind-vnc}
       TWOFA_TIMEOUT_ACTION: restart
-    ports:
+    expose:
       - "127.0.0.1:4001:4001"
       - "127.0.0.1:4002:4002"
       - "127.0.0.1:15901:5901"

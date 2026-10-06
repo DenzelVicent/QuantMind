@@ -1,6 +1,6 @@
 FROM python:3.10-slim-bookworm
 
-ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple/
+ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
 ARG SKIP_PYQLIB=auto
 # torch 按需安装：skip=默认不装（离线部署省体积/时间）；cpu=本地 DL 训练；gpu=CUDA GPU 训练。
 # 本镜像作为训练镜像(quantmind-trainer)基座，torch 版本由 install-model-deps.sh 按环境补齐。
@@ -12,7 +12,7 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_INDEX_URL=${PIP_INDEX_URL} \
-    PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn \
+    PIP_TRUSTED_HOST=mirrors.aliyun.com \
     PYTHONPATH=/app
 
 WORKDIR /app
