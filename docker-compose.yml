@@ -25,7 +25,7 @@ services:
       retries: 5
     restart: unless-stopped
     expose:
-      - "5432:5432"
+      - "5432"
     networks:
       - quantmind-net
 
@@ -34,7 +34,7 @@ services:
     image: redis:7-alpine
     container_name: quantmind-redis
     expose:
-      - "6379:6379"
+      - "6379"
     # maxmemory-policy 必须为 noeviction：本实例同时承载 Celery broker/result backend，
     # allkeys-lru 会在内存压力下静默淘汰队列消息（定时任务表现为"没跑"）。
     command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy noeviction --databases 16 --bind 0.0.0.0
@@ -613,7 +613,7 @@ services:
         APT_MIRROR: ${APT_MIRROR:-mirrors.aliyun.com}
     container_name: quantmind-data-gateway
     expose:
-      - "${DATA_GATEWAY_PORT:-8004}:8004"
+      - "${DATA_GATEWAY_PORT:-8004}"
     environment:
       - TZ=Asia/Shanghai
       - PYTHONPATH=/app
@@ -633,7 +633,7 @@ services:
   huntly:
     image: lcomplete/huntly:latest
     container_name: quantmind-huntly
-    expose:
+    ports:
       - "${HUNTLY_PORT:-8090}:80"
     volumes:
       - ./data/huntly:/data
@@ -658,7 +658,7 @@ services:
     image: diygod/rsshub:latest
     container_name: quantmind-rsshub
     expose:
-      - "${RSSHUB_PORT:-1200}:1200"
+      - "${RSSHUB_PORT:-1200}"
     environment:
       - NODE_ENV=production
       - TZ=Asia/Shanghai
