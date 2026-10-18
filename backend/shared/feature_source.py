@@ -99,9 +99,10 @@ def _partition_dt(path: Path) -> str:
 
 
 def _code6(value: object) -> str:
-    prefix = StockCodeUtil.to_prefix(str(value or ""))
-    match = _CODE6_RE.search(prefix)
-    return match.group(1) if match else prefix
+    # 后缀/前缀均含 6 位裸码（600036.SH / SH600036），非锚定提取以兼容双口径。
+    suffix = StockCodeUtil.normalize(str(value or ""))
+    match = re.search(r"(\d{6})", suffix)
+    return match.group(1) if match else suffix
 
 
 def _schema_columns(path: Path) -> list[str]:
@@ -122,7 +123,7 @@ def read_factor_source(
     """把 QuantDB 因子分区读入内存，返回含 ``symbol`` / ``trade_date`` 的 DataFrame。
 
     ``columns`` 为期望列名（缺失列自动忽略）；缺省读取全部分区列。
-    symbol 默认归一化为前缀式，与训练/推理/API 层口径一致。
+    symbol 默认归一化为后缀正典，与训练/推理/API 层口径一致。
     """
     partitions = list_factor_partitions(source, market)
     if not partitions:
@@ -183,7 +184,7 @@ def read_factor_source(
         df["trade_date"] = pd.to_datetime(df["trade_date"], errors="coerce")
     if normalize_symbol and "symbol" in df.columns:
         df["symbol"] = df["symbol"].map(
-            lambda v: StockCodeUtil.to_prefix(str(v))
+            lambda v: StockCodeUtil.normalize(str(v))
         )
     return df
 

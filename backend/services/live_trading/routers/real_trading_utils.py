@@ -1216,6 +1216,18 @@ def check_tdx_bridge_online() -> tuple[bool, str]:
         return False, f"TDX 桥不可达: {exc}"
 
 
+def _series_key_candidates(symbol: str) -> list[str]:
+    """时序读键候选（新后缀优先，老前缀兼容）。"""
+    suffix = StockCodeUtil.normalize(symbol)
+    keys = [f"market:series:{suffix}"]
+    code, market = StockCodeUtil.split_suffix(suffix)
+    if market:
+        legacy = f"market:series:{StockCodeUtil.to_prefix(f'{code}.{market}')}"
+        if legacy not in keys:
+            keys.append(legacy)
+    return keys
+
+
 def check_stream_series_freshness(
     redis_client=None, *, allow_quantdb_fallback: bool = False, market: str = "CN"
 ) -> dict[str, Any]:
@@ -1240,15 +1252,15 @@ def check_stream_series_freshness(
     try:
         stream_redis.ping()
         for symbol in stream_symbols:
-            normalized = StockCodeUtil.to_prefix(symbol)
-            key = f"market:series:{normalized}"
-            latest = stream_redis.zrevrange(key, 0, 0, withscores=True)
-            if latest:
-                _, score = latest[0]
-                age = max(0, int(time.time() - float(score)))
-                if latest_age_sec is None or age < latest_age_sec:
-                    matched_symbol = normalized
-                    latest_age_sec = age
+            for key in _series_key_candidates(symbol):
+                latest = stream_redis.zrevrange(key, 0, 0, withscores=True)
+                if latest:
+                    _, score = latest[0]
+                    age = max(0, int(time.time() - float(score)))
+                    if latest_age_sec is None or age < latest_age_sec:
+                        matched_symbol = StockCodeUtil.normalize(symbol)
+                        latest_age_sec = age
+                    break
     except Exception as exc:
         # 远端探测异常时降级到交易 Redis，并在 details 回显原因
         remote_probe_error = str(exc)
@@ -1256,15 +1268,15 @@ def check_stream_series_freshness(
             try:
                 used_fallback = True
                 for symbol in stream_symbols:
-                    normalized = StockCodeUtil.to_prefix(symbol)
-                    key = f"market:series:{normalized}"
-                    latest = redis_client.zrevrange(key, 0, 0, withscores=True)
-                    if latest:
-                        _, score = latest[0]
-                        age = max(0, int(time.time() - float(score)))
-                        if latest_age_sec is None or age < latest_age_sec:
-                            matched_symbol = normalized
-                            latest_age_sec = age
+                    for key in _series_key_candidates(symbol):
+                        latest = redis_client.zrevrange(key, 0, 0, withscores=True)
+                        if latest:
+                            _, score = latest[0]
+                            age = max(0, int(time.time() - float(score)))
+                            if latest_age_sec is None or age < latest_age_sec:
+                                matched_symbol = StockCodeUtil.normalize(symbol)
+                                latest_age_sec = age
+                            break
             except Exception:
                 pass
 

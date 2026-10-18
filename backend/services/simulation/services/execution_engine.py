@@ -2,7 +2,6 @@
 Synthetic execution engine for simulation orders.
 """
 
-import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -22,6 +21,7 @@ from backend.services.simulation.services.simulation_manager import (
 )
 from backend.services.trade_shared.trade_config import settings
 from backend.shared.auth import get_internal_call_secret
+from backend.shared.stock_utils import StockCodeUtil
 from backend.shared.utc_datetime import utc_now
 from backend.shared.trade_account_cache import (
     write_json_cache,
@@ -331,14 +331,36 @@ return tostring(granted)
         except Exception as e:
             logger.warning("Failed to fetch redis series quote for %s: %s", symbol, e)
 
-        # Level 1: 实时行情服务
+        # 快照独立于 WS 订阅生成的序列，直接读取，避免漏订阅股票没有取价源。
+        try:
+            from backend.services.simulation.services.redis_series_quote import (
+                fetch_snapshot_tick,
+            )
+
+            tick = await fetch_snapshot_tick(symbol)
+            if tick:
+                logger.info(
+                    "Redis snapshot price for %s: %.4f (age=%.0fs)",
+                    symbol,
+                    tick["price"],
+                    tick["age_s"],
+                )
+                return self.market_snapshot_from_tick(symbol, tick)
+        except Exception as e:
+            logger.warning("Failed to fetch redis snapshot quote for %s: %s", symbol, e)
+
+        # Level 1: 实时行情服务。A 股显式读 Redis 快照，不能回退到 QuantDB 日线。
         try:
             client = await self._http_client()
             headers = {"X-Internal-Call": get_internal_call_secret()}
             if user_id is not None:
                 headers["X-User-Id"] = str(user_id)
                 headers["X-Tenant-Id"] = str(tenant_id or "default")
-            resp = await client.get(endpoint, headers=headers)
+            params = {"use_cache": "false"}
+            _, exchange = StockCodeUtil.split_suffix(StockCodeUtil.normalize(symbol))
+            if exchange in {"SH", "SZ", "BJ"}:
+                params["source"] = "remote_redis"
+            resp = await client.get(endpoint, headers=headers, params=params)
             if resp.status_code == 200:
                 data = resp.json()
                 age_seconds = self._quote_age_seconds(data)
@@ -409,266 +431,6 @@ return tostring(granted)
         # data remains available to valuation code, but is never tradable.
         return MarketSnapshot(price=0.0, price_source="realtime_quote_unavailable")
 
-        # Level 2: 数据库兜底 (L2 Fallback) — stock_daily_latest
-        try:
-            from sqlalchemy import text
-            from backend.shared.stock_utils import StockCodeUtil
-
-            # stock_daily_latest 存 prefix 格式（SH600519），下单可能传 suffix（600519.SH）
-            db_symbol = StockCodeUtil.to_prefix(symbol) or symbol
-
-            query_with_limits = text(
-                """
-                SELECT close, adj_factor
-                FROM stock_daily_latest
-                WHERE symbol = :symbol
-                ORDER BY trade_date DESC LIMIT 1
-                """
-            )
-            try:
-                result = await self.db.execute(query_with_limits, {"symbol": db_symbol})
-                row = result.fetchone()
-                if row:
-                    hfq_close = float(row[0])
-                    adj_factor = float(row[1] or 1.0)
-                    price = hfq_close / adj_factor if adj_factor > 0 else hfq_close
-                    logger.info(
-                        "Fallback to DB nominal price for %s: %s", symbol, price
-                    )
-                    lu, ld, susp, lu_px, ld_px = self._enrich_cn_limits(symbol, price)
-                    return MarketSnapshot(
-                        price=price,
-                        price_source="db_fallback",
-                        limit_up=lu,
-                        limit_down=ld,
-                        suspended=susp,
-                        limit_up_price=lu_px,
-                        limit_down_price=ld_px,
-                    )
-            except Exception:
-                # 首次查询失败（如事务被污染），rollback 恢复后再用更简单的查询重试
-                try:
-                    await self.db.rollback()
-                except Exception:
-                    pass
-                query_legacy = text(
-                    """
-                    SELECT close, adj_factor
-                    FROM stock_daily_latest
-                    WHERE symbol = :symbol
-                    ORDER BY trade_date DESC LIMIT 1
-                    """
-                )
-                legacy_result = await self.db.execute(
-                    query_legacy, {"symbol": db_symbol}
-                )
-                legacy_row = legacy_result.fetchone()
-                if legacy_row:
-                    hfq_close = float(legacy_row[0])
-                    adj_factor = float(legacy_row[1] or 1.0)
-                    price = hfq_close / adj_factor if adj_factor > 0 else hfq_close
-                    logger.info(
-                        "Fallback to DB legacy nominal price for %s: %s", symbol, price
-                    )
-                    lu, ld, susp, lu_px, ld_px = self._enrich_cn_limits(symbol, price)
-                    return MarketSnapshot(
-                        price=price,
-                        price_source="db_fallback",
-                        limit_up=lu,
-                        limit_down=ld,
-                        suspended=susp,
-                        limit_up_price=lu_px,
-                        limit_down_price=ld_px,
-                    )
-        except Exception as e:
-            logger.error("Database fallback failed for %s: %s", symbol, e)
-
-        # Level 2.5: 本地日线兜底（QuantDB parquet）— Redis 不可用时以开盘价撮合
-        # 模拟盘核心兜底：直读本地不复权日线，用开盘价作为撮合价，不依赖实时流
-        def _local_daily_snapshot() -> MarketSnapshot | None:
-            from backend.services.simulation.services.local_market_data import (
-                get_local_market_data,
-            )
-            from backend.services.simulation.services.market_rules import infer_market
-            from datetime import date as _date
-
-            mkt = infer_market(symbol).value if symbol else "CN"
-            lmd = get_local_market_data(market=mkt)
-            # 优先当日，其次最近交易日
-            for d in [_date.today(), lmd.latest_trade_date()]:
-                if d is None:
-                    continue
-                bar = lmd.get_bar(symbol, d)
-                if bar and bar.open > 0:
-                    logger.info(
-                        "Fallback to LocalMarketData open for %s %s: open=%s",
-                        symbol,
-                        d,
-                        bar.open,
-                    )
-                    px = float(bar.open)
-                    lu = (
-                        bool(px >= float(bar.limit_up or 0) * (1 - 0.0015))
-                        if (bar.limit_up and bar.limit_up != float("inf"))
-                        else False
-                    )
-                    ld = (
-                        bool(px <= float(bar.limit_down or 0) * (1 + 0.0015))
-                        if (bar.limit_down and bar.limit_down > 0)
-                        else False
-                    )
-                    return MarketSnapshot(
-                        price=px,
-                        price_source="local_daily_open",
-                        limit_up=lu,
-                        limit_down=ld,
-                        suspended=bool(getattr(bar, "suspended", False)),
-                        limit_up_price=float(bar.limit_up)
-                        if bar.limit_up != float("inf")
-                        else None,
-                        limit_down_price=float(bar.limit_down)
-                        if bar.limit_down > 0
-                        else None,
-                    )
-                if bar and bar.close > 0:
-                    logger.info(
-                        "Fallback to LocalMarketData close for %s %s: close=%s",
-                        symbol,
-                        d,
-                        bar.close,
-                    )
-                    px = float(bar.close)
-                    lu = (
-                        bool(px >= float(bar.limit_up or 0) * (1 - 0.0015))
-                        if (bar.limit_up and bar.limit_up != float("inf"))
-                        else False
-                    )
-                    ld = (
-                        bool(px <= float(bar.limit_down or 0) * (1 + 0.0015))
-                        if (bar.limit_down and bar.limit_down > 0)
-                        else False
-                    )
-                    return MarketSnapshot(
-                        price=px,
-                        price_source="local_daily_close",
-                        limit_up=lu,
-                        limit_down=ld,
-                        suspended=bool(getattr(bar, "suspended", False)),
-                        limit_up_price=float(bar.limit_up)
-                        if bar.limit_up != float("inf")
-                        else None,
-                        limit_down_price=float(bar.limit_down)
-                        if bar.limit_down > 0
-                        else None,
-                    )
-            return None
-
-        try:
-            # 直读分区文件是同步磁盘 IO，放线程里跑，避免阻塞事件循环
-            local_snapshot = await asyncio.to_thread(_local_daily_snapshot)
-            if local_snapshot is not None:
-                return local_snapshot
-        except Exception as e:
-            logger.warning("LocalMarketData fallback failed for %s: %s", symbol, e)
-
-        # Level 3: 无法获取行情 —— 不伪造随机价格，交由 execute_order 拒单，
-        # 避免以虚假价格成交污染模拟盘资产/持仓。
-        return MarketSnapshot(price=0.0, price_source="unavailable")
-
-    async def execute_from_bar(
-        self,
-        order: SimOrder,
-        bar: Any,
-        market: str | None = None,
-    ) -> ExecutionResult:
-        """按当日不复权日 K 走 ashare_matcher（托管/周期调仓与回放同口径）。"""
-        from backend.services.simulation.services.ashare_matcher import (
-            MatchConfig,
-            match_order,
-        )
-        from backend.services.simulation.services.market_rules import (
-            infer_market,
-            lot_size_for_symbol,
-            rules_for,
-        )
-
-        rules = rules_for(market or infer_market(order.symbol))
-        market_str = rules.market.value
-        account_snapshot = await self.manager.get_account(
-            order.user_id, tenant_id=order.tenant_id, market=market_str
-        )
-        side = str(order.side.value).lower()
-        available_volume = None
-        if side == "sell" and isinstance(account_snapshot, dict):
-            positions = account_snapshot.get("positions") or {}
-            pos = positions.get(order.symbol)
-            if pos is None:
-                from backend.shared.stock_utils import StockCodeUtil
-
-                pos = positions.get(StockCodeUtil.to_suffix(order.symbol)) or positions.get(
-                    StockCodeUtil.to_prefix(order.symbol)
-                )
-            if isinstance(pos, dict):
-                avail = pos.get("available_volume")
-                available_volume = (
-                    float(pos.get("volume", 0) or 0)
-                    if avail is None
-                    else float(avail)
-                )
-
-        cfg = MatchConfig(
-            price_mode="close",
-            slippage_bps=float(settings.SIMULATION_SLIPPAGE_BPS),
-            commission_rate=float(settings.SIMULATION_COMMISSION_RATE),
-            commission_min=float(settings.SIMULATION_COMMISSION_MIN),
-            stamp_duty_rate=float(settings.SIMULATION_STAMP_DUTY_RATE),
-            lot_size=lot_size_for_symbol(order.symbol, rules.market),
-        )
-        mr = match_order(
-            side=side,
-            quantity=int(order.quantity or 0),
-            bar=bar,
-            cfg=cfg,
-            available_volume=available_volume,
-        )
-        if not mr.success:
-            return ExecutionResult(success=False, message=mr.reason)
-
-        gross = mr.fill_quantity * mr.fill_price
-        if side == "buy":
-            delta_cash = -(gross + mr.total_fee)
-            delta_volume = mr.fill_quantity
-        else:
-            delta_cash = gross - mr.total_fee
-            delta_volume = -mr.fill_quantity
-
-        update = await self.manager.update_balance(
-            user_id=order.user_id,
-            symbol=order.symbol,
-            delta_cash=delta_cash,
-            delta_volume=delta_volume,
-            price=mr.fill_price,
-            tenant_id=order.tenant_id,
-            market=rules.market.value,
-            t_plus_1=rules.t_plus_1,
-        )
-        if not update.get("success"):
-            reason = update.get("reason", "BALANCE_UPDATE_FAILED")
-            return ExecutionResult(
-                success=False, message=f"Balance update failed: {reason}"
-            )
-
-        return ExecutionResult(
-            success=True,
-            price=mr.fill_price,
-            quantity=mr.fill_quantity,
-            commission=mr.commission,
-            stamp_duty=mr.stamp_duty,
-            transfer_fee=mr.transfer_fee,
-            market=market_str,
-            account_snapshot=account_snapshot,
-            price_source=f"local_{cfg.price_mode}",
-        )
 
     async def execute_order(
         self,
@@ -684,10 +446,9 @@ return tostring(granted)
         base_price = snapshot.price
         fetched_source = snapshot.price_source
 
-        # 行情不可用（实时行情与 DB 兜底都失败时 price=0 / unavailable）：
+        # 行情不可用（实时行情缺失时 price=0 / realtime_quote_unavailable）：
         # 市价与限价单都无从定价，直接拒单，避免随机价格或空价格成交污染账户。
         if base_price <= 0 or fetched_source in {
-            "unavailable",
             "realtime_quote_unavailable",
         }:
             return ExecutionResult(
@@ -698,17 +459,14 @@ return tostring(granted)
                 ),
             )
 
-        # P0-5：兜底价（DB昨收/本地日线）是陈旧价，非交易时段市价单禁止按此成交，
+        # P0-5：本地日线是陈旧价，非交易时段市价单禁止按此成交，
         # 否则盘后/节假日一点即成交。限价单允许（用户显式定价）。
         # Bootstrap 首次建仓可显式放开（allow_stale_market_fill），用本地日线收盘价成交。
+        # 注：local_daily_close 唯一存活生产者为托管 engine 注入的 snapshot；
+        # db_fallback/local_daily_open 已随 _latest_price 兜底删除而无生产者，不再列出。
         if (
             not allow_stale_market_fill
-            and fetched_source
-            in {
-                "db_fallback",
-                "local_daily_open",
-                "local_daily_close",
-            }
+            and fetched_source == "local_daily_close"
             and order.order_type == OrderType.MARKET
         ):
             return ExecutionResult(
@@ -855,10 +613,37 @@ return tostring(granted)
             except ValueError:
                 max_unverified_notional = 100000.0
             if requested_qty * exec_price > max_unverified_notional:
-                return ExecutionResult(
-                    success=False,
-                    message="realtime_liquidity_unavailable_for_large_order",
+                # B split: unverified over-limit partial fill, remainder stays PENDING
+                from backend.services.simulation.services.market_rules import (
+                    lot_size_for_symbol,
                 )
+
+                lot = (
+                    int(lot_size_for_symbol(order.symbol, rules.market))
+                    if rules.market.value == "CN"
+                    else 1
+                )
+                lot = max(1, lot)
+                if exec_price > 0:
+                    capacity = int(max_unverified_notional // exec_price // lot * lot)
+                else:
+                    capacity = 0
+                if capacity <= 0:
+                    return ExecutionResult(
+                        success=False,
+                        message="realtime_liquidity_unavailable_for_large_order",
+                    )
+                fill_quantity = self._reserve_liquidity(
+                    symbol=order.symbol,
+                    requested=requested_qty,
+                    capacity=float(capacity),
+                    quote_timestamp=snapshot.quote_timestamp,
+                )
+                if fill_quantity <= 0:
+                    return ExecutionResult(
+                        success=False,
+                        message="realtime_liquidity_unavailable_for_large_order",
+                    )
 
         gross = fill_quantity * exec_price
         if rules.market.value == "CN":
@@ -1198,7 +983,6 @@ return tostring(granted)
             return SimpleNamespace(
                 can_execute=True,
                 target_trade_date=(now or datetime.now(timezone.utc)).date(),
-                final_state=None,
                 retryable=False,
                 message="ok",
             )
@@ -1272,7 +1056,6 @@ return tostring(granted)
             return SimpleNamespace(
                 can_execute=True,
                 target_trade_date=today,
-                final_state=None,
                 retryable=False,
                 message="ok",
             )
@@ -1280,7 +1063,6 @@ return tostring(granted)
         return SimpleNamespace(
             can_execute=False,
             target_trade_date=target_date,
-            final_state=None,
             retryable=True,
             message="queued for next valid session",
         )

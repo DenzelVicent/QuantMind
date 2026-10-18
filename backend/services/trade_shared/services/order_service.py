@@ -176,7 +176,12 @@ class OrderService:
         if query.portfolio_id:
             conditions.append(Order.portfolio_id == query.portfolio_id)
         if query.symbol:
-            conditions.append(Order.symbol == query.symbol.upper())
+            from backend.shared.stock_utils import StockCodeUtil
+
+            _sfx = StockCodeUtil.normalize(query.symbol)
+            _pfx = StockCodeUtil.to_prefix(query.symbol)
+            _variants = [v for v in dict.fromkeys([_sfx, _pfx]) if v]
+            conditions.append(Order.symbol.in_(_variants))
         if query.status:
             conditions.append(Order.status == query.status)
         if query.side:
@@ -241,13 +246,16 @@ class OrderService:
         else:
             order_value = order_data.quantity * (order_data.price or 0)
 
+        from backend.shared.stock_utils import StockCodeUtil
+
+        _norm_symbol = StockCodeUtil.normalize(order_data.symbol) or order_data.symbol.upper()
         order = Order(
             tenant_id=tenant_id,
             user_id=user_id,
             portfolio_id=order_data.portfolio_id,
             strategy_id=order_data.strategy_id,
-            symbol=order_data.symbol.upper(),
-            symbol_name=order_data.symbol_name or lookup_symbol_name(order_data.symbol.upper()),
+            symbol=_norm_symbol,
+            symbol_name=order_data.symbol_name or lookup_symbol_name(_norm_symbol),
             side=order_data.side,
             trade_action=self._resolve_trade_action(order_data),
             position_side=order_data.position_side,

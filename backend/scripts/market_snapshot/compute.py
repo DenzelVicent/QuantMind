@@ -690,7 +690,7 @@ def build_tags_db(data_dir: Path, out_dir: Path, date: str, heatmap: dict | None
         if not members.empty and "symbol" in members.columns:
             df = members[["symbol", "sector_code", "sector_name", "sector_type"]].copy()
             df["symbol"] = df["symbol"].astype(str).map(_normalize_prefix)
-            df = df[df["symbol"].str.match(r"^(SH|SZ|BJ)\d{6}$", na=False)]
+            df = df[df["symbol"].str.match(r"^((SH|SZ|BJ)\d{6}|\d{6}\.(SH|SZ|BJ))$", na=False)]
             df = df[df["sector_name"].str.contains("[\u4e00-\u9fff]", na=False) & (df["sector_name"].str.strip() != "")]
             rows = [tuple(r) for r in df.itertuples(index=False, name=None)]
             con.executemany("INSERT INTO tags VALUES(?,?,?,?)", rows)

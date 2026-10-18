@@ -12,6 +12,7 @@ interface LogPanelProps {
  */
 const LogPanel: React.FC<LogPanelProps> = ({ taskId, open, onToggle }) => {
     const [lines, setLines] = useState<string[]>([]);
+    const [error, setError] = useState<string | null>(null);
     const cursorRef = useRef('0-0');
     const linesRef = useRef<string[]>([]);
 
@@ -33,8 +34,10 @@ const LogPanel: React.FC<LogPanelProps> = ({ taskId, open, onToggle }) => {
             }
             linesRef.current = next;
             setLines(next);
+            setError(null);
         } catch (e) {
             console.warn('[TopologyConsole] logs failed', e);
+            setError(e instanceof Error ? e.message : '任务日志拉取失败');
         }
     }, [taskId]);
 
@@ -43,6 +46,7 @@ const LogPanel: React.FC<LogPanelProps> = ({ taskId, open, onToggle }) => {
         cursorRef.current = '0-0';
         linesRef.current = [];
         setLines([]);
+        setError(null);
         let cancelled = false;
         let timer: number | undefined;
         const poll = async (reset: boolean) => {
@@ -74,6 +78,8 @@ const LogPanel: React.FC<LogPanelProps> = ({ taskId, open, onToggle }) => {
                 <div className="border-t border-slate-100 p-4 max-h-72 overflow-y-auto font-mono text-[10px] text-slate-600 custom-scrollbar bg-white">
                     {!taskId ? (
                         <div className="text-slate-400 text-center text-xs py-12">暂无最新任务运行日志</div>
+                    ) : error ? (
+                        <div className="text-rose-500 text-center text-xs py-12">任务日志拉取失败：{error}</div>
                     ) : lines.length === 0 ? (
                         <div className="text-slate-400 animate-pulse text-center mt-20 flex items-center justify-center gap-2">
                             <Square size={12} /> Waiting for logs...

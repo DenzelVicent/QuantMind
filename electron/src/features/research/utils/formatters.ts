@@ -1,20 +1,6 @@
 export const safeNum = (value: unknown, fallback = 0): number =>
   typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 
-export const normalizeSymbol = (raw: string): string => {
-  const s = (raw || '').trim().toUpperCase();
-  if (!s) return s;
-  if (/^(SH|SZ|BJ)\d{6}$/.test(s)) return s;
-  const suffixMatch = s.match(/^(\d{6})\.(SH|SZ|BJ)$/);
-  if (suffixMatch) return `${suffixMatch[2]}${suffixMatch[1]}`;
-  if (/^\d{6}$/.test(s)) {
-    if (s.startsWith('6') || s.startsWith('68') || s.startsWith('90')) return `SH${s}`;
-    if (s.startsWith('4') || s.startsWith('8') || s.startsWith('9')) return `BJ${s}`;
-    return `SZ${s}`;
-  }
-  return s;
-};
-
 /**
  * ROE 统一口径：百分数（如 11.76 表示 11.76%）。
  *

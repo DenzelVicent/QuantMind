@@ -704,7 +704,7 @@ export const MODEL_DL_DEFAULTS: Record<string, Partial<TrainingParams>> = {
 
 export const DEFAULT_CONTEXT: TrainingContext = {
   initialCapital: 1000000,
-  benchmark: 'SH000300',
+  benchmark: '000300.SH',
   commissionRate: 0.00025,
   slippage: 0.0005,
   dealPrice: 'open',

@@ -165,9 +165,9 @@ def get_strategy_config():
 - 分区型数据为 Hive 分区 dt=YYYYMMDD/data.parquet，dt 是整数，DuckDB 过滤必须用整数区间，走谓词下推；单文件型为 {symbol}.parquet
 
 **股票代码双格式（高频踩坑）：**
-- 平台内部（Redis 键、PG 表、API 参数）统一前缀式：SH600519 / SZ000001
-- QuantDB parquet 内 symbol 为后缀式：600519.SH / 000001.SZ；查询前用 StockCodeUtil.to_suffix() 转换，反向用 to_prefix()
-- 用前缀式直查 parquet 会静默返回空且不报错，排查「查不到数据」先核对代码格式与响应的 source_used 字段
+- 平台内部（Redis 键、PG 表、API 参数）统一后缀式：600519.SH / 000001.SZ（StockCodeUtil.normalize() 为唯一正典入口）
+- QuantDB parquet 内 symbol 同为后缀式：600519.SH / 000001.SZ；任何输入先用 StockCodeUtil.normalize() 归一
+- Qlib 桥接是唯一例外：全小写 sh600519，仅在进出 Qlib 层边界经 to_qlib() 转换；读老数据/老键时可用 to_prefix() 兼容分支
 
 **关键单位：**个股 volume=股、amount=万元（close*volume/amount≈1e4 可验证）；指数 volume=手；市值=元；比例类字段单位按数据集而定，不确定时先提示用户核对。
 

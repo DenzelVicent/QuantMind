@@ -37,23 +37,44 @@ DEFAULT_QLIB_DATA = _default_qlib_data()
 # Qlib daily store uses lowercase prefix-form, e.g. "sh600036".
 # ---------------------------------------------------------------------------
 def to_qlib(symbol: str) -> str:
-    s = symbol.strip().upper()
-    if "." in s:
-        code, ex = s.split(".", 1)
+    from backend.shared.stock_utils import StockCodeUtil
+
+    s = (symbol or "").strip()
+    if not s:
+        return ""
+    u = s.upper()
+    if "." in u:
+        _, ex = u.split(".", 1)
+        if ex in ("SH", "SZ", "BJ"):
+            return StockCodeUtil.to_qlib(s)
+        # HK 等非 A 股后缀：中枢仅覆盖 A 股口径，保留原分支（调用方回退不变）
+        code, ex = u.split(".", 1)
         return f"{ex.lower()}{code}"
-    if s[:2] in {"SH", "SZ", "BJ", "HK"}:
-        return s.lower()
-    if s.endswith("HK"):
-        return s.lower()
-    return s.lower()
+    if u[:2] in {"SH", "SZ", "BJ"}:
+        return StockCodeUtil.to_qlib(s)
+    if u[:2] == "HK" or u.endswith("HK"):
+        return u.lower()
+    return StockCodeUtil.to_qlib(s)
 
 
 def to_internal(symbol: str) -> str:
-    s = symbol.strip().upper()
-    if "." in s:
-        code, ex = s.split(".", 1)
+    from backend.shared.stock_utils import StockCodeUtil
+
+    s = (symbol or "").strip()
+    if not s:
+        return ""
+    u = s.upper()
+    if "." in u:
+        code, ex = u.split(".", 1)
+        if ex in ("SH", "SZ", "BJ"):
+            return StockCodeUtil.to_prefix(s)
+        # 非 A 股后缀保留原分支
         return f"{ex}{code}"
-    return s
+    prefixed = StockCodeUtil.to_prefix(s)
+    if prefixed[:2] in ("SH", "SZ", "BJ"):
+        return prefixed
+    # 中枢仅识别 A 股；其余（qlib 小写前缀如 hk_xxx）沿用原样大写返回
+    return u
 
 
 # ---------------------------------------------------------------------------

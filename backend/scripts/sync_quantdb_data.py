@@ -92,12 +92,10 @@ def _get_qdb_client():
 
 
 def _to_internal(symbol: str) -> str:
-    """600036.SH -> SH600036 (内部 PG 格式)"""
-    s = symbol.strip().upper()
-    if "." in s:
-        code, ex = s.split(".", 1)
-        return f"{ex}{code}"
-    return s
+    """任意输入 -> 后缀正典 600036.SH (PG 唯一通用格式)。"""
+    from backend.shared.stock_utils import StockCodeUtil
+
+    return StockCodeUtil.normalize(symbol)
 
 
 def _to_qdb(symbol: str) -> str:

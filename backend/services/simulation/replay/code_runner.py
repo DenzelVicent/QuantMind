@@ -94,7 +94,7 @@ def _build_user_globals() -> dict[str, Any]:
 def _resolve_universe_symbols(
     universe: Any, market_data: Any
 ) -> list[str]:
-    """解析 setup 的 universe 为前缀式符号表。
+    """解析 setup 的 universe 为后缀正典符号表。
 
     list 直接用；str 先走 strategy_lab 的 qlib instruments（与回测同源），
     读不到再回退回放本地行情全量标的。
@@ -111,8 +111,8 @@ def _resolve_universe_symbols(
         except Exception:
             syms = []
         if syms:
-            return [StockCodeUtil.to_prefix(s) for s in syms]
-        # 回退：本地回放行情全量（后缀式转前缀）
+            return [StockCodeUtil.normalize(s) for s in syms]
+        # 回退：本地回放行情全量（统一后缀正典）
         try:
             bars = market_data.load_date(None, None)  # type: ignore[arg-type]
         except Exception:
@@ -131,8 +131,8 @@ def _resolve_universe_symbols(
                     bars = market_data.load_date(_date(y, m, d), None)
             except Exception:
                 bars = {}
-        return [StockCodeUtil.to_prefix(s) for s in bars.keys()]
-    return [StockCodeUtil.to_prefix(str(s)) for s in (universe or [])]
+        return [StockCodeUtil.normalize(s) for s in bars.keys()]
+    return [StockCodeUtil.normalize(str(s)) for s in (universe or [])]
 
 
 def prepare_session(
@@ -766,7 +766,7 @@ def run_code_day(
         kept = []
         for o in orders:
             try:
-                if StockCodeUtil.to_prefix(o.symbol) in allowed:
+                if StockCodeUtil.normalize(o.symbol) in allowed:
                     kept.append(o)
                     continue
             except Exception:

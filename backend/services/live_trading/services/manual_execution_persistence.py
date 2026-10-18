@@ -135,6 +135,8 @@ class ManualExecutionPersistence:
         trigger_context: dict[str, Any] | None = None,
         strategy_snapshot: dict[str, Any] | None = None,
         parent_runtime_id: str | None = None,
+        status: str = "queued",
+        stage: str | None = None,
     ) -> None:
         async with get_session() as session:
             await session.execute(
@@ -204,8 +206,8 @@ class ManualExecutionPersistence:
                         else None
                     ),
                     "parent_runtime_id": parent_runtime_id,
-                    "status": "queued",
-                    "stage": "queued",
+                    "status": status,
+                    "stage": stage or status,
                     "request_json": json.dumps(request_payload, ensure_ascii=False),
                     "created_at": created_at,
                 },

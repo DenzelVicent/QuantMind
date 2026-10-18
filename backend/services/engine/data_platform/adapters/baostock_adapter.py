@@ -53,11 +53,26 @@ def _ensure_login() -> None:
 
 
 def _to_bs_symbol(symbol: str) -> str:
-    """600519.SH -> sh.600519, 000001.SZ -> sz.000001"""
-    s = symbol.strip().upper()
+    """任意口径 -> baostock 代码（外部 API 参数格式，如 sh.600519，保持原格式要求）。
+
+    先经中枢归一（前后缀/裸码双收），再转 bs 格式；bs 原生小写已直接透传。
+    """
+    from backend.shared.stock_utils import StockCodeUtil
+
+    raw = str(symbol or "").strip()
+    if not raw:
+        return ""
+    low = raw.lower()
+    if low.startswith(("sh.", "sz.", "bj.")):
+        return low
+    s = StockCodeUtil.normalize(raw).upper() or raw.upper()
     if "." in s:
         code, ex = s.split(".", 1)
-        return f"{ex.lower()}.{code}"
+        # 后缀式 600519.SH -> sh.600519；前缀式 SH.600519（normalize 漏网）同样处理
+        if ex in ("SH", "SZ", "BJ") and code[:6].isdigit():
+            return f"{ex.lower()}.{code[:6]}"
+        if code in ("SH", "SZ", "BJ"):
+            return f"{code.lower()}.{ex}"
     return s.lower()
 
 
@@ -142,9 +157,12 @@ class BaostockAdapter(OfflineDataSourceAdapter):
             raise DataUnavailable("baostock query_stock_basic empty")
         df = pd.DataFrame(rows, columns=rs.fields)
         # baostock fields: code,code_name,ipoDate,outDate,type,status
+        # symbol 列由 _from_bs_symbol 构造，恒为后缀式；code/exchange 经中枢拆分
+        from backend.shared.stock_utils import StockCodeUtil as _SCU
+
         df["symbol"] = df["code"].map(_from_bs_symbol)
-        df["code"] = df["symbol"].str.split(".").str[0]
-        df["exchange"] = df["symbol"].str.split(".").str[1]
+        df["code"] = df["symbol"].map(lambda s: _SCU.split_suffix(s)[0] or str(s))
+        df["exchange"] = df["symbol"].map(lambda s: _SCU.split_suffix(s)[1] or "")
         df["name"] = df["code_name"]
         df["market"] = "A"
         df["list_date"] = pd.to_datetime(df["ipoDate"], errors="coerce").dt.date

@@ -1,5 +1,6 @@
 // 市场数据服务API接口 - 增强版股票搜索
 import axios from 'axios';
+import { toSuffixCode } from '../utils/portfolioUtils';
 
 // 基础配置 - 使用统一端口配置
 import { SERVICE_URLS } from '../config/services';
@@ -260,11 +261,14 @@ class MarketDataService {
       }
 
       const searchResp = await this.searchStocks(code.trim(), 10);
+      // 两侧都经 toSuffixCode 归一后再比，前缀/后缀/裸码输入都能命中同一标的
+      const targetSfx = toSuffixCode(code.trim());
+      const targetBare = targetSfx.replace(/\.\w+$/, '');
       const exact = (searchResp.data || []).find((item) => {
-        const symbol = String(item.symbol || '').toUpperCase();
-        const itemCode = String(item.code || '').toUpperCase();
-        const target = code.trim().toUpperCase();
-        return symbol === target || itemCode === target || itemCode.startsWith(target.split('.')[0]);
+        const symbolSfx = toSuffixCode(String(item.symbol || ''));
+        const itemCodeSfx = toSuffixCode(String(item.code || ''));
+        return symbolSfx === targetSfx || itemCodeSfx === targetSfx
+          || itemCodeSfx.replace(/\.\w+$/, '') === targetBare;
       }) || (searchResp.data || [])[0];
 
       if (exact && String(exact.name || '').trim()) {
@@ -289,11 +293,13 @@ class MarketDataService {
       console.error('获取股票详情失败:', error);
       try {
         const searchResp = await this.searchStocks(code.trim(), 10);
+        const targetSfx = toSuffixCode(code.trim());
+        const targetBare = targetSfx.replace(/\.\w+$/, '');
         const exact = (searchResp.data || []).find((item) => {
-          const symbol = String(item.symbol || '').toUpperCase();
-          const itemCode = String(item.code || '').toUpperCase();
-          const target = code.trim().toUpperCase();
-          return symbol === target || itemCode === target || itemCode.startsWith(target.split('.')[0]);
+          const symbolSfx = toSuffixCode(String(item.symbol || ''));
+          const itemCodeSfx = toSuffixCode(String(item.code || ''));
+          return symbolSfx === targetSfx || itemCodeSfx === targetSfx
+            || itemCodeSfx.replace(/\.\w+$/, '') === targetBare;
         }) || (searchResp.data || [])[0];
 
         if (exact && String(exact.name || '').trim()) {
@@ -504,7 +510,7 @@ class MarketDataService {
       return symbol.trim().length === 6;
     }
 
-    // 如果包含点，检查格式
+    // 如果包含点，检查后缀格式
     if (symbol.includes('.')) {
       const parts = symbol.split('.');
       if (parts.length === 2) {
@@ -514,41 +520,20 @@ class MarketDataService {
       }
     }
 
+    // 前缀式（SH600519 / SZ000001 / BJ430001）显式放行
+    if (/^(SH|SZ|BJ)\d{6}$/i.test(symbol.trim())) {
+      return true;
+    }
+
     // 中文名称或其他格式都认为有效
     return true;
   }
 
-  // 自动补全/规范化股票代码格式 (转换为 600000.SH 格式)
+  // 自动补全/规范化股票代码格式 (转换为 600000.SH 格式)。
+  // 口径以 utils/portfolioUtils.toSuffixCode 为准（与后端 StockCodeUtil.to_suffix 同号段），
+  // 本方法仅做委托，禁止在此手写号段/正则。
   normalizeStockSymbol(input: string): string {
-    const cleaned = input.trim().toUpperCase();
-
-    // 1. 如果包含点且格式正确 (000001.SZ), 直接返回
-    if (cleaned.includes('.')) {
-      const parts = cleaned.split('.');
-      if (parts.length === 2 && /^\d{6}$/.test(parts[0])) {
-        const suffix = parts[1];
-        if (['SH', 'SZ', 'BJ'].includes(suffix)) {
-          return cleaned;
-        }
-      }
-    }
-
-    // 2. 处理前缀格式 (SH600000 -> 600000.SH)
-    if (/^[S[HZB]J]\d{6}$/.test(cleaned)) {
-      const prefix = cleaned.substring(0, 2);
-      const code = cleaned.substring(2);
-      return `${code}.${prefix}`;
-    }
-
-    // 3. 如果是6位数字，根据前缀推断添加后缀
-    if (/^\d{6}$/.test(cleaned)) {
-      const suffix = cleaned.startsWith('6') || cleaned.startsWith('688') ? 'SH' : 
-                     (cleaned.startsWith('4') || cleaned.startsWith('8') ? 'BJ' : 'SZ');
-      return `${cleaned}.${suffix}`;
-    }
-
-    // 无法自动识别的格式，返回原值(大写)
-    return cleaned;
+    return toSuffixCode(input);
   }
 
   // 搜索建议（自动补全）

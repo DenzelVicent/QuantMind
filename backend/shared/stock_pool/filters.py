@@ -62,12 +62,24 @@ class PoolFilterOutcome:
         }
 
 
-def _to_prefix(symbol: Any) -> str:
+def _norm_suffix(symbol: Any) -> str:
+    """任意口径 → 后缀正典（600036.SH）。前后缀双口径输入均归一，可互查。"""
     raw = str(symbol or "").strip()
     if not raw:
         return ""
     try:
-        return StockCodeUtil.to_prefix(raw)
+        return StockCodeUtil.normalize(raw)
+    except Exception:  # noqa: BLE001
+        return raw
+
+
+def _to_prefix(symbol: Any) -> str:
+    """单列归一为后缀正典式（双口径输入均归一；保留函数名供旧调用兼容）。"""
+    raw = str(symbol or "").strip()
+    if not raw:
+        return ""
+    try:
+        return StockCodeUtil.to_suffix(raw)
     except Exception:  # noqa: BLE001
         return raw
 
@@ -110,7 +122,7 @@ def filter_signals_by_pool(
         outcome.kept = items
         return outcome
 
-    allowed = {_to_prefix(s) for s in (getattr(snapshot, "api_symbols", None) or [])}
+    allowed = {_norm_suffix(s) for s in (getattr(snapshot, "api_symbols", None) or [])}
     allowed.discard("")
     outcome.pool_symbol_count = len(allowed)
 
@@ -130,7 +142,7 @@ def filter_signals_by_pool(
     kept: list[dict] = []
     dropped = 0
     for sig in items:
-        if _to_prefix(sig.get(symbol_key)) in allowed:
+        if _norm_suffix(sig.get(symbol_key)) in allowed:
             kept.append(sig)
         else:
             dropped += 1
@@ -158,10 +170,10 @@ def filter_signals_by_pool(
 def intersect_symbols(
     base: Iterable[str] | None, extra: Iterable[str] | None
 ) -> list[str]:
-    """两组代码求交集（前缀式比较，保序取 base）。用于「池 ∩ 显式指定股票」。"""
+    """两组代码求交集（后缀正典键比对，前后缀双口径可互查；保序取 base 原格式）。用于「池 ∩ 显式指定股票」。"""
     if base is None:
         return [_to_prefix(s) for s in (extra or [])]
     if extra is None:
         return [_to_prefix(s) for s in base]
-    extra_norm = {_to_prefix(s) for s in extra}
-    return [_to_prefix(s) for s in base if _to_prefix(s) in extra_norm]
+    extra_norm = {_norm_suffix(s) for s in extra}
+    return [s for s in base if _norm_suffix(s) in extra_norm]

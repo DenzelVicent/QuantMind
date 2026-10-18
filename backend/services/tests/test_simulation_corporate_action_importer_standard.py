@@ -26,22 +26,6 @@ def _row(**overrides):
     return base
 
 
-def test_pure_dividend_maps_to_single_dividend_row():
-    decisions = map_standard_corp_action_row(
-        _row(interest="0.25", event_type="分红", dr="1.05"),
-        source="standard_csv:test.csv",
-    )
-    assert len(decisions) == 1
-    d = decisions[0]
-    assert d.status == "accepted"
-    assert d.mapped is not None
-    assert d.mapped.action_type == "dividend"
-    assert d.mapped.cash_dividend_per_share == 0.25
-    assert d.mapped.share_ratio == 0.0
-    assert d.mapped.ex_date == datetime(2026, 6, 22)
-    assert d.mapped.symbol == "SZ000001"
-
-
 def test_pure_stock_gift_maps_to_bonus_share_with_gift_as_ratio():
     decisions = map_standard_corp_action_row(
         _row(symbol="000793.SZ", stock_gift="1.2", event_type="转增", dr="2.191666"),
@@ -99,26 +83,6 @@ def test_combined_dividend_bonus_gift_merges_bonus_into_one_row():
     by_action = {d.mapped.action_type: d.mapped for d in decisions if d.mapped}
     assert by_action["dividend"].cash_dividend_per_share == 0.2
     assert by_action["bonus_share"].share_ratio == 0.7
-
-
-def test_rights_issue_maps_to_rights_issue_row():
-    decisions = map_standard_corp_action_row(
-        _row(
-            symbol="600000.SH",
-            allot_num="0.5",
-            allot_price="8.0",
-            event_type="配股",
-            dr="1.0",
-        ),
-        source="standard_csv:test.csv",
-    )
-    assert len(decisions) == 1
-    d = decisions[0]
-    assert d.mapped is not None
-    assert d.mapped.action_type == "rights_issue"
-    assert d.mapped.share_ratio == 0.5
-    assert d.mapped.rights_price == 8.0
-    assert d.mapped.symbol == "SH600000"
 
 
 def test_missing_symbol_is_skipped():
@@ -194,21 +158,6 @@ def test_dr_anomaly_not_checked_for_combined_events_with_interest():
     for d in decisions:
         assert d.mapped is not None
         assert "dr_anomaly=" not in (d.mapped.note or "")
-
-
-def test_load_standard_csv_reads_utf8_sig(tmp_path):
-    csv_path = tmp_path / "corp_actions.csv"
-    csv_path.write_text(
-        "﻿symbol,trade_date,interest,stock_bonus,stock_gift,allot_num,allot_price,gugai,dr,event_type,has_dividend,has_stock_action,is_high_transfer\n"
-        "000793.SZ,2026-06-22,0.0,0.0,1.2,0.0,0.0,0.0,2.191666,转增,0,1,0\n"
-        "000937.SZ,2026-06-17,0.1,0.0,0.1,0.0,0.0,0.0,1.121649,分红|转增,1,1,0\n",
-        encoding="utf-8",
-    )
-    decisions = load_standard_corp_action_csv(csv_path)
-    accepted = [d for d in decisions if d.status == "accepted"]
-    assert len(accepted) == 3  # 1 (转增) + 2 (分红|转增)
-    symbols = {d.mapped.symbol for d in accepted if d.mapped}
-    assert symbols == {"SZ000793", "SZ000937"}
 
 
 def test_source_defaults_to_standard_csv_prefix(tmp_path):

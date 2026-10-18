@@ -104,7 +104,7 @@ const defaultConfig: Partial<BacktestConfig> = {
   end_date: '2026-01-01',
   initial_capital: 100000,
   commission: 0.001,
-  benchmark_symbol: 'SH000300',
+  benchmark_symbol: '000300.SH',
   risk_free_rate: 0.02,
   position_sizing: 'fixed',
   max_position_size: 1.0,

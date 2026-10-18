@@ -318,7 +318,8 @@ class TestToSuffixSymbol:
         assert self.convert("sh600036") == "600036.SH"
 
     def test_no_prefix_passthrough(self):
-        assert self.convert("600036") == "600036"
+        # 中枢收敛后：纯 6 位数字按号段自动识别（600036 -> 600036.SH），不再原样透传
+        assert self.convert("600036") == "600036.SH"
 
 
 # ===========================================================================

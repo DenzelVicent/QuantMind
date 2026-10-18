@@ -5,6 +5,7 @@
 
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import { SERVICE_URLS } from '../../config/services';
+import { toQlibCode } from '../../utils/portfolioUtils';
 import {
   QlibBacktestConfig,
   QlibBacktestResult
@@ -341,21 +342,19 @@ class QlibBacktestService {
       const strategyType = config.qlib_strategy_type || 'TopkDropout';
 
       // 处理股票池：如果symbol包含逗号，说明是多只股票
+      // 后端消费：pool: 引用与指数/池关键词（csi300/all 等）透传解析，
+      // 自定义代码经中枢归一转 qlib 小写口径（000001.SZ -> sz000001）
       let universe = 'csi300'; // 默认使用沪深300
       if (config.symbol) {
-        // 如果指定了股票，使用自定义列表
-        // 前端传入格式：000001.SZ,600519.SH
-        // Qlib需要格式：SZ000001 SH600519（空格分隔，市场代码在前）
-        const symbols = config.symbol.split(',').map(s => s.trim()).filter(s => s);
-        if (symbols.length > 0) {
-          // 转换格式：000001.SZ -> SZ000001
-          universe = symbols.map(sym => {
-            const parts = sym.split('.');
-            if (parts.length === 2) {
-              return `${parts[1]}${parts[0]}`; // 市场代码+股票代码
-            }
-            return sym;
-          }).join(' '); // 空格分隔
+        const rawUniverse = config.symbol.trim();
+        const PASSTHROUGH = new Set(['all', 'all_a', 'csi300', 'csi500', 'csi800', 'csi1000', 'sse50', 'gem', 'star']);
+        if (rawUniverse.toLowerCase().startsWith('pool:') || PASSTHROUGH.has(rawUniverse.toLowerCase())) {
+          universe = rawUniverse;
+        } else {
+          const symbols = rawUniverse.split(',').map(s => s.trim()).filter(s => s);
+          if (symbols.length > 0) {
+            universe = symbols.map(sym => toQlibCode(sym)).join(' '); // 空格分隔
+          }
         }
       }
 
@@ -368,7 +367,7 @@ class QlibBacktestService {
         start_date: config.start_date,
         end_date: config.end_date,
         initial_capital: config.initial_capital,
-        benchmark: config.benchmark_symbol || 'SH000300',
+        benchmark: config.benchmark_symbol || '000300.SH',
         universe: universe,
         open_cost: config.qlib_strategy_params?.buy_cost || config.commission || 0.00025,
         close_cost: config.qlib_strategy_params?.sell_cost || (config.commission ? config.commission * 3 : 0.00075),
@@ -544,7 +543,7 @@ class QlibBacktestService {
             start_date: config.start_date,
             end_date: config.end_date,
             initial_capital: config.initial_capital,
-            benchmark: 'SH000300',
+            benchmark: '000300.SH',
             universe: 'csi300', // 简化处理，实际应解析 config.symbol
             open_cost: config.qlib_strategy_params?.buy_cost || 0.00026,
             close_cost: config.qlib_strategy_params?.sell_cost || 0.00076,

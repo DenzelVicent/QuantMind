@@ -4,6 +4,7 @@
  */
 
 import { WebSocketClient, ConnectionState } from '../websocket/WebSocketClient';
+import { normalizeSymbol } from '../../utils/portfolioUtils';
 
 export interface Quote {
   symbol: string;
@@ -95,20 +96,22 @@ export class MarketDataService {
    * 订阅实时行情
    */
   subscribeQuote(symbol: string, callback: QuoteCallback): string {
-    const subscriptionId = `quote_${symbol}_${Date.now()}`;
+    // A股归一为后缀式，HK/US 等透传（normalizeSymbol 未知格式原样返回）
+    const key = normalizeSymbol(symbol);
+    const subscriptionId = `quote_${key}_${Date.now()}`;
 
-    if (!this.quoteCallbacks.has(symbol)) {
-      this.quoteCallbacks.set(symbol, new Set());
+    if (!this.quoteCallbacks.has(key)) {
+      this.quoteCallbacks.set(key, new Set());
       // 订阅WebSocket频道
-      this.wsClient.subscribe(`quote:${symbol}`, (data) => {
-        this.handleQuoteData(symbol, data);
+      this.wsClient.subscribe(`quote:${key}`, (data) => {
+        this.handleQuoteData(key, data);
       });
     }
 
-    this.quoteCallbacks.get(symbol)!.add(callback);
+    this.quoteCallbacks.get(key)!.add(callback);
 
     // 如果已有缓存数据，立即回调
-    const cachedQuote = this.quotes.get(symbol);
+    const cachedQuote = this.quotes.get(key);
     if (cachedQuote) {
       callback(cachedQuote);
     }
@@ -120,17 +123,18 @@ export class MarketDataService {
    * 订阅Tick数据
    */
   subscribeTick(symbol: string, callback: TickCallback): string {
-    const subscriptionId = `tick_${symbol}_${Date.now()}`;
+    const key = normalizeSymbol(symbol);
+    const subscriptionId = `tick_${key}_${Date.now()}`;
 
-    if (!this.tickCallbacks.has(symbol)) {
-      this.tickCallbacks.set(symbol, new Set());
+    if (!this.tickCallbacks.has(key)) {
+      this.tickCallbacks.set(key, new Set());
       // 订阅WebSocket频道
-      this.wsClient.subscribe(`tick:${symbol}`, (data) => {
-        this.handleTickData(symbol, data);
+      this.wsClient.subscribe(`tick:${key}`, (data) => {
+        this.handleTickData(key, data);
       });
     }
 
-    this.tickCallbacks.get(symbol)!.add(callback);
+    this.tickCallbacks.get(key)!.add(callback);
 
     return subscriptionId;
   }
@@ -139,17 +143,18 @@ export class MarketDataService {
    * 订阅成交明细
    */
   subscribeTrade(symbol: string, callback: TradeCallback): string {
-    const subscriptionId = `trade_${symbol}_${Date.now()}`;
+    const key = normalizeSymbol(symbol);
+    const subscriptionId = `trade_${key}_${Date.now()}`;
 
-    if (!this.tradeCallbacks.has(symbol)) {
-      this.tradeCallbacks.set(symbol, new Set());
+    if (!this.tradeCallbacks.has(key)) {
+      this.tradeCallbacks.set(key, new Set());
       // 订阅WebSocket频道
-      this.wsClient.subscribe(`trade:${symbol}`, (data) => {
-        this.handleTradeData(symbol, data);
+      this.wsClient.subscribe(`trade:${key}`, (data) => {
+        this.handleTradeData(key, data);
       });
     }
 
-    this.tradeCallbacks.get(symbol)!.add(callback);
+    this.tradeCallbacks.get(key)!.add(callback);
 
     return subscriptionId;
   }
@@ -158,19 +163,20 @@ export class MarketDataService {
    * 取消订阅行情
    */
   unsubscribeQuote(symbol: string, callback?: QuoteCallback): void {
+    const key = normalizeSymbol(symbol);
     if (callback) {
-      this.quoteCallbacks.get(symbol)?.delete(callback);
+      this.quoteCallbacks.get(key)?.delete(callback);
 
       // 如果没有回调了，取消WebSocket订阅
-      if (this.quoteCallbacks.get(symbol)?.size === 0) {
-        this.wsClient.unsubscribe(`quote:${symbol}`);
-        this.quoteCallbacks.delete(symbol);
-        this.quotes.delete(symbol);
+      if (this.quoteCallbacks.get(key)?.size === 0) {
+        this.wsClient.unsubscribe(`quote:${key}`);
+        this.quoteCallbacks.delete(key);
+        this.quotes.delete(key);
       }
     } else {
-      this.wsClient.unsubscribe(`quote:${symbol}`);
-      this.quoteCallbacks.delete(symbol);
-      this.quotes.delete(symbol);
+      this.wsClient.unsubscribe(`quote:${key}`);
+      this.quoteCallbacks.delete(key);
+      this.quotes.delete(key);
     }
   }
 
@@ -178,18 +184,19 @@ export class MarketDataService {
    * 取消订阅Tick
    */
   unsubscribeTick(symbol: string, callback?: TickCallback): void {
+    const key = normalizeSymbol(symbol);
     if (callback) {
-      this.tickCallbacks.get(symbol)?.delete(callback);
+      this.tickCallbacks.get(key)?.delete(callback);
 
-      if (this.tickCallbacks.get(symbol)?.size === 0) {
-        this.wsClient.unsubscribe(`tick:${symbol}`);
-        this.tickCallbacks.delete(symbol);
-        this.ticks.delete(symbol);
+      if (this.tickCallbacks.get(key)?.size === 0) {
+        this.wsClient.unsubscribe(`tick:${key}`);
+        this.tickCallbacks.delete(key);
+        this.ticks.delete(key);
       }
     } else {
-      this.wsClient.unsubscribe(`tick:${symbol}`);
-      this.tickCallbacks.delete(symbol);
-      this.ticks.delete(symbol);
+      this.wsClient.unsubscribe(`tick:${key}`);
+      this.tickCallbacks.delete(key);
+      this.ticks.delete(key);
     }
   }
 
@@ -197,18 +204,19 @@ export class MarketDataService {
    * 取消订阅成交明细
    */
   unsubscribeTrade(symbol: string, callback?: TradeCallback): void {
+    const key = normalizeSymbol(symbol);
     if (callback) {
-      this.tradeCallbacks.get(symbol)?.delete(callback);
+      this.tradeCallbacks.get(key)?.delete(callback);
 
-      if (this.tradeCallbacks.get(symbol)?.size === 0) {
-        this.wsClient.unsubscribe(`trade:${symbol}`);
-        this.tradeCallbacks.delete(symbol);
-        this.trades.delete(symbol);
+      if (this.tradeCallbacks.get(key)?.size === 0) {
+        this.wsClient.unsubscribe(`trade:${key}`);
+        this.tradeCallbacks.delete(key);
+        this.trades.delete(key);
       }
     } else {
-      this.wsClient.unsubscribe(`trade:${symbol}`);
-      this.tradeCallbacks.delete(symbol);
-      this.trades.delete(symbol);
+      this.wsClient.unsubscribe(`trade:${key}`);
+      this.tradeCallbacks.delete(key);
+      this.trades.delete(key);
     }
   }
 
@@ -216,14 +224,14 @@ export class MarketDataService {
    * 获取最新行情
    */
   getLatestQuote(symbol: string): Quote | null {
-    return this.quotes.get(symbol) || null;
+    return this.quotes.get(normalizeSymbol(symbol)) || null;
   }
 
   /**
    * 获取Tick数据
    */
   getTickData(symbol: string, limit?: number): Tick[] {
-    const ticks = this.ticks.get(symbol) || [];
+    const ticks = this.ticks.get(normalizeSymbol(symbol)) || [];
     return limit ? ticks.slice(-limit) : ticks;
   }
 
@@ -231,7 +239,7 @@ export class MarketDataService {
    * 获取成交明细
    */
   getTradeData(symbol: string, limit?: number): Trade[] {
-    const trades = this.trades.get(symbol) || [];
+    const trades = this.trades.get(normalizeSymbol(symbol)) || [];
     return limit ? trades.slice(-limit) : trades;
   }
 

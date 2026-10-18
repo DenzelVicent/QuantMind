@@ -179,7 +179,7 @@ async def _apply_session_pool_filter(
     allowed = set()
     for s in snapshot.api_symbols or []:
         try:
-            allowed.add(StockCodeUtil.to_prefix(str(s)))
+            allowed.add(StockCodeUtil.normalize(str(s)))
         except Exception:
             continue
     if not allowed:
@@ -188,7 +188,7 @@ async def _apply_session_pool_filter(
     kept = []
     for sig in signals:
         try:
-            if StockCodeUtil.to_prefix(str(sig.symbol)) in allowed:
+            if StockCodeUtil.normalize(str(sig.symbol)) in allowed:
                 kept.append(sig)
         except Exception:
             continue

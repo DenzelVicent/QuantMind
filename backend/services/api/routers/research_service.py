@@ -107,6 +107,10 @@ async def _load_sdl_day_map(session, trade_date: date, market: str | None = None
     cached = await _aredis_get_json(cache_key)
     if cached and "symbols" in cached and isinstance(cached["symbols"], dict):
         symbols = cached["symbols"]
+        if isinstance(symbols, dict):
+            # 兼容 36h TTL 内的老缓存（prefix 键）：读侧统一归一后缀，
+            # 与 _read_features_daily_day / QuantDB 映射的新后缀键同口径。
+            return {StockCodeUtil.normalize(k): v for k, v in symbols.items()}
         return symbols if isinstance(symbols, dict) else {}
 
     is_cn = not market or market.upper() == "CN"
@@ -248,7 +252,7 @@ def _read_features_daily_day(trade_date: date) -> dict[str, dict[str, Any]]:
 
     result: dict[str, dict[str, Any]] = {}
     for _, row in frame.iterrows():
-        symbol = StockCodeUtil.to_prefix(str(row.get("symbol") or ""))
+        symbol = StockCodeUtil.normalize(str(row.get("symbol") or ""))
         if not symbol:
             continue
         payload: dict[str, Any] = {}
@@ -273,7 +277,7 @@ def _read_features_daily_day(trade_date: date) -> dict[str, dict[str, Any]]:
 
 
 def _load_quantdb_name_industry() -> dict[str, dict[str, Any]]:
-    """从 QuantDB instrument_list parquet 加载 {prefix_symbol: {stock_name, industry}}。
+    """从 QuantDB instrument_list parquet 加载 {suffix_symbol: {stock_name, industry}}。
 
     仅用于 CN 市场：stock_daily_latest.stock_name 自 2026-06-18 起全为 NULL，
     且 stocks 表可能为空，名称与行业需以 QuantDB 全量股票列表为准。
@@ -294,14 +298,14 @@ def _load_quantdb_name_industry() -> dict[str, dict[str, Any]]:
     name_col = "Name" if "Name" in df.columns else ("stock_name" if "stock_name" in df.columns else None)
     if symbol_col and name_col:
         for _, row in df[[symbol_col, name_col]].dropna().iterrows():
-            sym = StockCodeUtil.to_prefix(str(row[symbol_col]).strip())
+            sym = StockCodeUtil.normalize(str(row[symbol_col]).strip())
             nm = str(row[name_col]).strip()
             if sym and nm:
                 result.setdefault(sym, {})["stock_name"] = nm
     ind_col = "rs_hyname" if "rs_hyname" in df.columns else None
     if symbol_col and ind_col:
         for _, row in df[[symbol_col, ind_col]].dropna().iterrows():
-            sym = StockCodeUtil.to_prefix(str(row[symbol_col]).strip())
+            sym = StockCodeUtil.normalize(str(row[symbol_col]).strip())
             val = str(row[ind_col]).strip()
             if sym and val:
                 result.setdefault(sym, {})["industry"] = val
@@ -342,7 +346,7 @@ def _to_bool(v: Any) -> bool:
 def _load_quantdb_labels() -> dict[str, dict[str, Any]]:
     """从 QuantDB 静态数据加载概念/指数标签。
 
-    返回 {prefix_symbol: {concepts: list[str], indices: list[str],
+    返回 {suffix_symbol: {concepts: list[str], indices: list[str],
                           is_hs300: bool, is_csi500: bool, is_csi1000: bool}}。
     数据来源：instrument_list 指数归属 + sector_members 概念板块 + index_weights 成分。
     """
@@ -380,7 +384,7 @@ def _load_quantdb_labels() -> dict[str, dict[str, Any]]:
                 if inst is not None and not inst.empty:
                     sym_col = "symbol" if "symbol" in inst.columns else "Symbol"
                     for _, row in inst.iterrows():
-                        sym = StockCodeUtil.to_prefix(str(row.get(sym_col, "")).strip())
+                        sym = StockCodeUtil.normalize(str(row.get(sym_col, "")).strip())
                         if not sym:
                             continue
                         r = _ensure(sym)
@@ -402,7 +406,7 @@ def _load_quantdb_labels() -> dict[str, dict[str, Any]]:
                 members = hub.fetch_sector_members()
                 if members is not None and not members.empty:
                     for _, row in members.iterrows():
-                        sym = StockCodeUtil.to_prefix(str(row.get("symbol", "")).strip())
+                        sym = StockCodeUtil.normalize(str(row.get("symbol", "")).strip())
                         stype = str(row.get("sector_type", "")).strip()
                         sname = str(row.get("sector_name", "")).strip()
                         if not sym or not sname or stype not in ("概念板块", "地区板块"):
@@ -429,7 +433,7 @@ def _load_quantdb_labels() -> dict[str, dict[str, Any]]:
                 if not sym_col:
                     continue
                 for _, row in wdf.iterrows():
-                    sym = StockCodeUtil.to_prefix(str(row.get(sym_col, "")).strip())
+                    sym = StockCodeUtil.normalize(str(row.get(sym_col, "")).strip())
                     if not sym:
                         continue
                     r = _ensure(sym)
@@ -574,7 +578,7 @@ async def _load_sdl_pg_map(session, trade_date: date, market: str | None) -> dic
 
     for row in res.mappings():
         payload = dict(row)
-        symbol = StockCodeUtil.to_prefix(str(payload.get("symbol") or ""))
+        symbol = StockCodeUtil.normalize(str(payload.get("symbol") or ""))
         if not symbol:
             continue
         existing = symbol_map.get(symbol)
@@ -606,15 +610,19 @@ def _set_local_cache(
 
 
 def _norm_symbol_sql(symbol_expr: str) -> str:
+    """SQL 侧代码归一：任何口径 → 后缀式 600519.SH（与 StockCodeUtil.normalize 同口径）。
+
+    DB 已迁后缀；JOIN/去重两侧统一用本函数，比对恒同口径。
+    """
     return f"""
         CASE
-            WHEN {symbol_expr} ~* '^(SH|SZ|BJ)[0-9]{{6}}$' THEN UPPER({symbol_expr})
-            WHEN {symbol_expr} ~* '^[0-9]{{6}}\\.(SH|SZ|BJ)$' THEN UPPER(RIGHT({symbol_expr}, 2)) || LEFT({symbol_expr}, 6)
-            WHEN {symbol_expr} ~ '^[0-9]{{6}}$' AND LEFT({symbol_expr}, 1) IN ('6') THEN 'SH' || {symbol_expr}
-            WHEN {symbol_expr} ~ '^[0-9]{{6}}$' AND LEFT({symbol_expr}, 2) = '92' THEN 'BJ' || {symbol_expr}
-            WHEN {symbol_expr} ~ '^[0-9]{{6}}$' AND LEFT({symbol_expr}, 1) IN ('4', '8') THEN 'BJ' || {symbol_expr}
-            WHEN {symbol_expr} ~ '^[0-9]{{6}}$' AND LEFT({symbol_expr}, 1) IN ('9') THEN 'SH' || {symbol_expr}
-            WHEN {symbol_expr} ~ '^[0-9]{{6}}$' THEN 'SZ' || {symbol_expr}
+            WHEN {symbol_expr} ~* '^[0-9]{{6}}\\.(SH|SZ|BJ)$' THEN UPPER({symbol_expr})
+            WHEN {symbol_expr} ~* '^(SH|SZ|BJ)[0-9]{{6}}$' THEN SUBSTRING(UPPER({symbol_expr}), 3) || '.' || SUBSTRING(UPPER({symbol_expr}), 1, 2)
+            WHEN {symbol_expr} ~ '^[0-9]{{6}}$' AND LEFT({symbol_expr}, 1) IN ('6') THEN {symbol_expr} || '.SH'
+            WHEN {symbol_expr} ~ '^[0-9]{{6}}$' AND LEFT({symbol_expr}, 2) = '92' THEN {symbol_expr} || '.BJ'
+            WHEN {symbol_expr} ~ '^[0-9]{{6}}$' AND LEFT({symbol_expr}, 1) IN ('4', '8') THEN {symbol_expr} || '.BJ'
+            WHEN {symbol_expr} ~ '^[0-9]{{6}}$' AND LEFT({symbol_expr}, 1) IN ('9') THEN {symbol_expr} || '.SH'
+            WHEN {symbol_expr} ~ '^[0-9]{{6}}$' THEN {symbol_expr} || '.SZ'
             ELSE UPPER({symbol_expr})
         END
     """
@@ -1011,7 +1019,7 @@ async def _do_get_overview(
                 if isinstance(td, date) and td.year == _SDL_REDIS_YEAR:
                     sdl_map = await _load_sdl_day_map(session, td, market=market)
                 for snap in rows:
-                    symbol = StockCodeUtil.to_prefix(str(snap.get("symbol") or ""))
+                    symbol = StockCodeUtil.normalize(str(snap.get("symbol") or ""))
                     merged = dict(snap)
                     sdl = sdl_map.get(symbol)
                     if sdl:
@@ -1307,6 +1315,11 @@ def _materialize_pred_day(parquet_file: Path, trade_date: str) -> Path | None:
                   OR UPPER(CAST({sym_col} AS VARCHAR)) LIKE 'SH900%'
                   OR UPPER(CAST({sym_col} AS VARCHAR)) LIKE 'SZ200%'
                   OR UPPER(CAST({sym_col} AS VARCHAR)) LIKE 'BJ%'
+                  OR UPPER(CAST({sym_col} AS VARCHAR)) LIKE '000%.SH'
+                  OR UPPER(CAST({sym_col} AS VARCHAR)) LIKE '900%.SH'
+                  OR UPPER(CAST({sym_col} AS VARCHAR)) LIKE '399%.SZ'
+                  OR UPPER(CAST({sym_col} AS VARCHAR)) LIKE '200%.SZ'
+                  OR UPPER(CAST({sym_col} AS VARCHAR)) LIKE '%.BJ'
               )
             """
         ).fetchall()
@@ -1315,8 +1328,8 @@ def _materialize_pred_day(parquet_file: Path, trade_date: str) -> Path | None:
         symbols: list[str] = []
         scores: list[float] = []
         for r in rows:
-            symbol = StockCodeUtil.to_prefix(str(r[0] or ""))
-            if not re.match(r"^(SH|SZ|BJ)\d{6}$", symbol):
+            symbol = StockCodeUtil.normalize(str(r[0] or ""))
+            if not re.match(r"^\d{6}\.(SH|SZ|BJ)$", symbol):
                 continue
             symbols.append(symbol)
             scores.append(float(r[1]))
@@ -1347,7 +1360,7 @@ def _read_model_pred_day(storage_path: str, trade_date: str) -> list[dict[str, A
 
     投研批次日历选中日期后的个股列表数据源（B 套）。排名口径与
     engine_signal_scores / 个股分数曲线对齐：剔除 B 股（SH900/SZ200）、
-    北交所（BJ）、指数（SH000/SZ399）。symbol 统一转前缀式。
+    北交所（BJ）、指数（SH000/SZ399）。symbol 统一转后缀式。
     优先读按日物化分片（单日小文件直读 + RANK），分片缺失时从全量提取
     并物化，之后重复请求直读分片。带 mtime 键控的进程内缓存兜底。
     """
@@ -1385,8 +1398,8 @@ def _read_model_pred_day(storage_path: str, trade_date: str) -> list[dict[str, A
                 [str(part)],
             ).fetchall()
             for r in res:
-                symbol = StockCodeUtil.to_prefix(str(r[0] or ""))
-                if not re.match(r"^(SH|SZ|BJ)\d{6}$", symbol):
+                symbol = StockCodeUtil.normalize(str(r[0] or ""))
+                if not re.match(r"^\d{6}\.(SH|SZ|BJ)$", symbol):
                     continue
                 rows.append(
                     {"symbol": symbol, "score": float(r[1]), "rank": int(r[2])}
@@ -1434,14 +1447,19 @@ def _read_model_pred_day(storage_path: str, trade_date: str) -> list[dict[str, A
                               OR UPPER(CAST({sym_col} AS VARCHAR)) LIKE 'SH900%'
                               OR UPPER(CAST({sym_col} AS VARCHAR)) LIKE 'SZ200%'
                               OR UPPER(CAST({sym_col} AS VARCHAR)) LIKE 'BJ%'
+                              OR UPPER(CAST({sym_col} AS VARCHAR)) LIKE '000%.SH'
+                              OR UPPER(CAST({sym_col} AS VARCHAR)) LIKE '900%.SH'
+                              OR UPPER(CAST({sym_col} AS VARCHAR)) LIKE '399%.SZ'
+                              OR UPPER(CAST({sym_col} AS VARCHAR)) LIKE '200%.SZ'
+                              OR UPPER(CAST({sym_col} AS VARCHAR)) LIKE '%.BJ'
                           )
                     )
                     SELECT sym, sc, rk FROM d ORDER BY rk ASC
                     """
                 ).fetchall()
                 for r in res:
-                    symbol = StockCodeUtil.to_prefix(str(r[0] or ""))
-                    if not re.match(r"^(SH|SZ|BJ)\d{6}$", symbol):
+                    symbol = StockCodeUtil.normalize(str(r[0] or ""))
+                    if not re.match(r"^\d{6}\.(SH|SZ|BJ)$", symbol):
                         continue
                     rows.append(
                         {"symbol": symbol, "score": float(r[1]), "rank": int(r[2])}
@@ -1731,7 +1749,7 @@ async def _do_get_universe_with_sdl_redis(
         merged_rows: list[dict[str, Any]] = []
         for row in snap_rows:
             snap = dict(row)
-            symbol = StockCodeUtil.to_prefix(str(snap.get("symbol") or ""))
+            symbol = StockCodeUtil.normalize(str(snap.get("symbol") or ""))
             merged = dict(snap)
             sdl = sdl_map.get(symbol)
             if sdl:
@@ -2042,10 +2060,10 @@ async def _fetch_simulation_positions(authorization: str, x_user_id: str, x_tena
 
     positions: list[str] = []
     for key in (data.get("positions") or {}).keys():
-        base = str(key).split("::", 1)[0]  # 兼容 margin 仓位的侧标（SH600036::long）
-        prefix = StockCodeUtil.to_prefix(base)
-        if re.match(r"^(SH|SZ|BJ)\d{6}$", prefix):
-            positions.append(prefix)
+        base = str(key).split("::", 1)[0]  # 兼容 margin 仓位的侧标（600036.SH::long）
+        norm = StockCodeUtil.normalize(base)
+        if re.match(r"^\d{6}\.(SH|SZ|BJ)$", norm):
+            positions.append(norm)
     return sorted(set(positions))
 
 
@@ -2164,7 +2182,7 @@ def _load_quantdb_stock_names() -> dict[str, str]:
 
 
 async def get_symbols_features(tid: str, uid: str, symbols: list[str], lite: bool) -> dict[str, Any]:
-    normalized_symbols = [StockCodeUtil.to_prefix(s.strip()) for s in symbols if s.strip()]
+    normalized_symbols = [StockCodeUtil.normalize(s.strip()) for s in symbols if s.strip()]
     if not normalized_symbols:
         return {"code": 200, "data": {"items": []}}
 
@@ -2175,19 +2193,19 @@ async def get_symbols_features(tid: str, uid: str, symbols: list[str], lite: boo
     sql = f"""
         WITH sym_list(raw_symbol) AS (VALUES {vals}),
         pool_norm AS (
-            SELECT symbol, features_snapshot, ({norm}) AS prefix_symbol
+            SELECT symbol, features_snapshot, ({norm}) AS norm_symbol
             FROM qm_user_research_pool WHERE tenant_id = :tid AND user_id = :uid
         ),
         watchlist_norm AS (
-            SELECT symbol, features_snapshot, ({norm}) AS prefix_symbol
+            SELECT symbol, features_snapshot, ({norm}) AS norm_symbol
             FROM qm_user_watchlist WHERE tenant_id = :tid AND user_id = :uid
         )
         SELECT
             sym_list.raw_symbol AS symbol,
             COALESCE(ps.features_snapshot, ws.features_snapshot) as snapshot
         FROM sym_list
-        LEFT JOIN pool_norm ps ON ps.prefix_symbol = sym_list.raw_symbol
-        LEFT JOIN watchlist_norm ws ON ws.prefix_symbol = sym_list.raw_symbol
+        LEFT JOIN pool_norm ps ON ps.norm_symbol = sym_list.raw_symbol
+        LEFT JOIN watchlist_norm ws ON ws.norm_symbol = sym_list.raw_symbol
     """
     async with get_session(read_only=True) as session:
         result = await session.execute(text(sql), {"tid": tid, "uid": uid})
@@ -2302,7 +2320,7 @@ def _quantdb_kline_items(
 async def get_stock_kline(
     symbol: str, days: int, end_date: str | None = None, start_date: str | None = None
 ) -> dict[str, Any]:
-    normalized_symbol = StockCodeUtil.to_prefix(symbol)
+    normalized_symbol = StockCodeUtil.normalize(symbol)
     # 截止日/起始日归一化（非法值回退为缺省）；缓存键必须带日期维度，否则
     # 不同窗口的 K 线结果会互相污染。
     try:
@@ -2369,9 +2387,13 @@ def _resolve_snapshot_parquet(market: str, year: int):
 
 
 def _snapshot_symbol(market: str, normalized_symbol: str) -> str:
-    """快照 parquet 的 symbol 口径：CN 为无前缀 6 位码（SH600519 -> 600519）。"""
-    if market == "CN" and normalized_symbol[:2] in ("SH", "SZ", "BJ"):
-        return normalized_symbol[2:]
+    """快照 parquet 的 symbol 口径：CN 为无前缀 6 位码（600519.SH -> 600519）。"""
+    if market == "CN":
+        m = re.match(r"^(\d{6})\.(SH|SZ|BJ)$", str(normalized_symbol).strip().upper())
+        if m:
+            return m.group(1)
+        if normalized_symbol[:2] in ("SH", "SZ", "BJ"):
+            return normalized_symbol[2:]
     return normalized_symbol
 
 
@@ -2509,7 +2531,7 @@ async def predict_single_stock(
     execute: bool = False,
 ) -> dict[str, Any]:
     """单只股票未来走势与区间分位数预测服务。"""
-    normalized_symbol = StockCodeUtil.to_prefix(symbol)
+    normalized_symbol = StockCodeUtil.normalize(symbol)
 
     # 1. 名称/价格/波动一律走 QuantDB（stock_daily_latest 已弃用）
     stock_name = normalized_symbol
@@ -2559,15 +2581,15 @@ async def predict_single_stock(
                     ma_gap_20 = round((latest_close - ma20) / ma20 * 100, 2)
 
     KNOWN_NAMES = {
-        "SH600519": "贵州茅台",
-        "SZ300750": "宁德时代",
-        "SZ002594": "比亚迪",
-        "SH600036": "招商银行",
-        "SZ000001": "平安银行",
-        "SH601318": "中国平安",
-        "SZ000858": "五粮液",
-        "SH601857": "中国石油",
-        "SH600900": "长江电力",
+        "600519.SH": "贵州茅台",
+        "300750.SZ": "宁德时代",
+        "002594.SZ": "比亚迪",
+        "600036.SH": "招商银行",
+        "000001.SZ": "平安银行",
+        "601318.SH": "中国平安",
+        "000858.SZ": "五粮液",
+        "601857.SH": "中国石油",
+        "600900.SH": "长江电力",
     }
     if stock_name == normalized_symbol and normalized_symbol in KNOWN_NAMES:
         stock_name = KNOWN_NAMES[normalized_symbol]
@@ -2662,7 +2684,7 @@ async def predict_single_stock(
                         # ③ 取内存信号（已按 symbols 过滤，仅含目标股）
                         for sig in execution.get("signals") or []:
                             try:
-                                if StockCodeUtil.to_prefix(str(sig.get("symbol") or "")) == normalized_symbol:
+                                if StockCodeUtil.normalize(str(sig.get("symbol") or "")) == normalized_symbol:
                                     live_signal = sig
                                     break
                             except Exception:
@@ -2714,9 +2736,14 @@ async def predict_single_stock(
         data_source = str(independent_main.get("data_source") or "live")
 
     # 3. 读真实推理分数：engine_signal_scores（混合A：默认读持久化真实分数）
+    # 多口径匹配：新写入为后缀式（600519.SH），历史批次为前缀式（SH600519），
+    # 单等值匹配会静默查空。用 ANY(变体数组) 保持索引可用（model_training 侧同理）。
+    _prefix_variant = StockCodeUtil.to_prefix(normalized_symbol)
     _sym_variants = list({
         normalized_symbol,
         normalized_symbol.lower(),
+        _prefix_variant,
+        _prefix_variant.lower(),
         re.sub(r"[^0-9]", "", normalized_symbol),
     })
     score_params: dict[str, Any] = {"tid": tid}

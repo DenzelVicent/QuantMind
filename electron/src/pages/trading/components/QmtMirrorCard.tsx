@@ -15,6 +15,7 @@ import { AlertTriangle, Power, RefreshCw, Send, ShieldAlert } from 'lucide-react
 import dayjs from 'dayjs';
 import { authService } from '../../../features/auth/services/authService';
 import { SERVICE_URLS } from '../../../config/services';
+import { normalizeSymbol } from '../../../utils/portfolioUtils';
 
 const apiBase = `${SERVICE_URLS.API_GATEWAY}/api/v1`;
 const POLL_MS = 10000;
@@ -112,7 +113,8 @@ const QmtMirrorCard: React.FC = () => {
         setStatus(data);
         setLimits(data.config ?? {});
         setWhitelist(data.whitelist ?? []);
-        setBlacklist(data.blacklist ?? []);
+        // QMT 通道以后缀式为准（qmt_exec_client._to_qmt_symbol），历史前缀存量读时归一
+        setBlacklist((data.blacklist ?? []).map((s) => normalizeSymbol(String(s))));
     };
 
     const load = useCallback(async (silent = false) => {
@@ -486,13 +488,13 @@ const QmtMirrorCard: React.FC = () => {
                     />
                 </div>
                 <div>
-                    <div className="text-[11px] text-gray-500 mb-1">黑名单标的（前缀式，如 SH600519）</div>
+                    <div className="text-[11px] text-gray-500 mb-1">黑名单标的（后缀式，如 600519.SH）</div>
                     <Select
                         mode="tags"
                         className="w-full"
-                        placeholder="如 SH600519"
+                        placeholder="如 600519.SH"
                         value={blacklist}
-                        onChange={(value) => setBlacklist(value)}
+                        onChange={(value) => setBlacklist(value.map((s) => normalizeSymbol(String(s))))}
                         tokenSeparators={[',', ' ']}
                     />
                 </div>

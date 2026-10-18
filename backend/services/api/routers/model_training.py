@@ -2802,7 +2802,7 @@ def _load_quantdb_stock_names() -> dict[str, str]:
             )
             if symbol_col and name_col:
                 for _, row in df[[symbol_col, name_col]].dropna().iterrows():
-                    sym = StockCodeUtil.to_prefix(str(row[symbol_col]).strip())
+                    sym = StockCodeUtil.normalize(str(row[symbol_col]).strip())
                     nm = str(row[name_col]).strip()
                     if sym and nm:
                         result[sym] = nm
@@ -3011,8 +3011,8 @@ async def get_model_inference_run_detail(
             sym = str(item.get("symbol") or "").strip()
             if not sym:
                 continue
-            prefix = StockCodeUtil.to_prefix(sym)
-            nm = name_map.get(prefix) if prefix else None
+            suffix = StockCodeUtil.normalize(sym)
+            nm = name_map.get(suffix) if suffix else None
             if nm:
                 item["stock_name"] = nm
     except Exception as exc:  # pragma: no cover - 名称兜底失败不影响主流程
@@ -3705,6 +3705,11 @@ def _read_stock_pred_history(
                                   OR UPPER(CAST({sym_col} AS VARCHAR)) LIKE 'SH900%'
                                   OR UPPER(CAST({sym_col} AS VARCHAR)) LIKE 'SZ200%'
                                   OR UPPER(CAST({sym_col} AS VARCHAR)) LIKE 'BJ%'
+                                  OR UPPER(CAST({sym_col} AS VARCHAR)) LIKE '000%.SH'
+                                  OR UPPER(CAST({sym_col} AS VARCHAR)) LIKE '900%.SH'
+                                  OR UPPER(CAST({sym_col} AS VARCHAR)) LIKE '399%.SZ'
+                                  OR UPPER(CAST({sym_col} AS VARCHAR)) LIKE '200%.SZ'
+                                  OR UPPER(CAST({sym_col} AS VARCHAR)) LIKE '%.BJ'
                               )
                         )
                         SELECT td, sc, rk, tot FROM d
@@ -3923,6 +3928,10 @@ async def get_stock_inference_history(
         d = str(row.get("data_trade_date") or row["trade_date"])[:10]
         if d not in by_date:
             by_date[d] = dict(row)
+            by_date[d]["prediction_trade_date"] = str(row["trade_date"])[:10]
+            by_date[d]["date_semantics"] = (
+                "data_trade_date" if row.get("data_trade_date") else "prediction_trade_date"
+            )
             by_date[d]["trade_date"] = d
             if by_date[d].get("data_trade_date") is not None:
                 by_date[d]["data_trade_date"] = str(by_date[d]["data_trade_date"])
@@ -4046,6 +4055,7 @@ async def get_stock_inference_history(
         "items": items,
         "models": models,
         "score_source": "pred_parquet" if pred_items else "inference_runs",
+        "date_semantics": "pred_parquet 为数据交易日；批次优先使用数据交易日，缺失时保留信号生效日并在条目标明。不能把节后生效预测当作假期行情评分。",
     }
 
 

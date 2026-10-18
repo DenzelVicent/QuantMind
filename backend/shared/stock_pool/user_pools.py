@@ -38,7 +38,7 @@ _MIGRATE_REF = {
     CODE_RESEARCH: "migrated:qm_user_research_pool",
 }
 
-_PREFIX_RE = re.compile(r"^(SH|SZ|BJ)\d{6}$", re.I)
+_SUFFIX_RE = re.compile(r"^\d{6}\.(SH|SZ|BJ)$", re.I)
 
 
 class UserPoolEnsureRequest(BaseModel):
@@ -60,14 +60,19 @@ def _require_allowed_code(code: str) -> str:
     return c
 
 
-def _to_prefix(raw: str) -> str | None:
+def _to_suffix(raw: str) -> str | None:
+    """任意口径 → 后缀正典（600036.SH），非法返回 None。"""
     try:
-        prefix = StockCodeUtil.to_prefix(str(raw or "").strip())
+        suffix = StockCodeUtil.normalize(str(raw or "").strip())
     except Exception:
         return None
-    if not prefix or not _PREFIX_RE.match(prefix):
+    if not suffix or not _SUFFIX_RE.match(suffix):
         return None
-    return prefix.upper()
+    return suffix.upper()
+
+
+# 旧名兼容（调用方统一用 _to_suffix；保留别名防外部导入断裂）
+_to_prefix = _to_suffix
 
 
 async def _load_legacy_symbols(
@@ -94,11 +99,11 @@ async def _load_legacy_symbols(
     out: list[str] = []
     seen: set[str] = set()
     for (sym,) in rows:
-        prefix = _to_prefix(str(sym or ""))
-        if not prefix or prefix in seen:
+        suffix = _to_suffix(str(sym or ""))
+        if not suffix or suffix in seen:
             continue
-        seen.add(prefix)
-        out.append(prefix)
+        seen.add(suffix)
+        out.append(suffix)
     return out
 
 
@@ -227,24 +232,25 @@ async def add_symbol_to_user_pool(
         tenant_id=tenant_id,
         actor=actor,
     )
-    prefix = _to_prefix(symbol)
-    if not prefix:
+    suffix = _to_suffix(symbol)
+    if not suffix:
         raise ValueError(f"非法股票代码: {symbol}")
     members = repo.read_members(pool)
-    if prefix in {m.upper() for m in members}:
+    # 成员 TXT 可能混有老 prefix 行，双口径归一后比对防重
+    if suffix in {StockCodeUtil.normalize(m) for m in members}:
         return {
             "pool": pool_to_dict(pool),
-            "symbol": prefix,
+            "symbol": suffix,
             "added": False,
             "symbol_count": len(members),
         }
     result = await repo.save_members(
-        session, pool, [*members, prefix], actor=actor or str(user_id)
+        session, pool, [*members, suffix], actor=actor or str(user_id)
     )
     refreshed = await repo.get_pool(session, pool.pool_id)
     return {
         "pool": pool_to_dict(refreshed or pool),
-        "symbol": prefix,
+        "symbol": suffix,
         "added": True,
         "symbol_count": int(result.get("symbol_count") or 0),
     }
@@ -270,15 +276,15 @@ async def remove_symbol_from_user_pool(
             tenant_id=tenant_id,
             actor=actor,
         )
-    prefix = _to_prefix(symbol)
-    if not prefix:
+    suffix = _to_suffix(symbol)
+    if not suffix:
         raise ValueError(f"非法股票代码: {symbol}")
     members = repo.read_members(pool)
-    remaining = [m for m in members if m.upper() != prefix]
+    remaining = [m for m in members if StockCodeUtil.normalize(m) != suffix]
     if len(remaining) == len(members):
         return {
             "pool": pool_to_dict(pool),
-            "symbol": prefix,
+            "symbol": suffix,
             "removed": False,
             "symbol_count": len(members),
         }
@@ -288,7 +294,7 @@ async def remove_symbol_from_user_pool(
     refreshed = await repo.get_pool(session, pool.pool_id)
     return {
         "pool": pool_to_dict(refreshed or pool),
-        "symbol": prefix,
+        "symbol": suffix,
         "removed": True,
         "symbol_count": int(result.get("symbol_count") or 0),
     }
@@ -311,12 +317,12 @@ async def replace_user_pool_members(
         actor=actor,
     )
     payload = PoolMembersSave(symbols=list(symbols or []))
-    # 归一到前缀式再存（save_members 内部会再转存储口径）
+    # 归一到后缀正典再存（save_members 内部会再转存储口径）
     api_syms: list[str] = []
     for raw in payload.symbols:
-        prefix = _to_prefix(raw)
-        if prefix:
-            api_syms.append(prefix)
+        suffix = _to_suffix(raw)
+        if suffix:
+            api_syms.append(suffix)
     result = await repo.save_members(
         session, pool, api_syms, actor=actor or str(user_id)
     )
@@ -331,10 +337,10 @@ def members_as_watchlist_items(api_symbols: list[str]) -> list[dict[str, Any]]:
     """兼容旧 /research/watchlist 响应形态。"""
     items: list[dict[str, Any]] = []
     for sym in api_symbols:
-        prefix = _to_prefix(sym) or str(sym)
+        suffix = _to_suffix(sym) or str(sym)
         items.append(
             {
-                "symbol": prefix,
+                "symbol": suffix,
                 "stockName": None,
                 "addedAt": None,
                 "sourceRunId": None,

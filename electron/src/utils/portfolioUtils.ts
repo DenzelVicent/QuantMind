@@ -37,6 +37,9 @@ export const normalizePositions = (accountInfo: AccountInfo | null): Array<{ key
 
 /**
  * 解析股票代码并强制归一化为 Prefix 格式 (如 SH600036)
+ *
+ * @deprecated 过渡期兼容垫片。新代码一律用 normalizeSymbol()（后缀 600036.SH），
+ * 待后缀迁移完成后删除。
  */
 export const normalizeStockCode = (raw: string): string => {
     const s = (raw || '').trim().toUpperCase();
@@ -66,6 +69,29 @@ export const normalizeStockCode = (raw: string): string => {
 };
 
 /**
+ * 全系统正典归一化：任何输入 -> 后缀格式 600036.SH（与后端 StockCodeUtil.normalize 同口径）。
+ * 未知格式（港股/美股等）原样返回（去空格大写），不硬判。
+ */
+export const normalizeSymbol = (raw: string): string => {
+    const s = (raw || '').trim().toUpperCase();
+    if (!s) return s;
+    if (/^\d{6}\.(SH|SZ|BJ)$/.test(s)) return s;
+    const m = s.match(/^(SH|SZ|BJ)(\d{6})$/);
+    if (m) return `${m[2]}.${m[1]}`;
+    if (/^\d{6}$/.test(s)) return toSuffixCode(s);
+    return s;
+};
+
+/**
+ * 拆分后缀式为 [裸码, 市场]，替代散落的 split('.') 手写切片。
+ */
+export const splitSuffixCode = (raw: string): [string, string] => {
+    const s = normalizeSymbol(raw);
+    const m = s.match(/^(\d{6})\.(SH|SZ|BJ)$/);
+    return m ? [m[1], m[2]] : ['', (raw || '').trim().toUpperCase()];
+};
+
+/**
  * 前缀式转后缀式（SH600519 -> 600519.SH），供行情/终端等后缀口径组件使用。
  * 非标准代码原样返回。
  */
@@ -73,6 +99,27 @@ export const toSuffixCode = (raw: string): string => {
     const s = normalizeStockCode(raw);
     const m = s.match(/^(SH|SZ|BJ)(\d{6})$/);
     return m ? `${m[2]}.${m[1]}` : s;
+};
+
+/**
+ * 后缀/前缀/裸码 -> Qlib 口径全小写（600519.SH -> sh600519），Qlib 层边界唯一出口。
+ * 与后端 StockCodeUtil.to_qlib 同口径；指数/池关键词（csi300/all 等）与 pool: 引用
+ * 不在此处理——调用方须先分流透传，禁止把关键词喂进来转小写。
+ */
+export const toQlibCode = (raw: string): string => {
+    const [code, market] = splitSuffixCode(raw);
+    if (code && market) return `${market.toLowerCase()}${code}`;
+    return normalizeSymbol(raw).toLowerCase();
+};
+
+/**
+ * 拆分前缀式为 [市场, 裸码]，替代散落的 slice(0,2)/slice(2)/split('.') 手写切片。
+ * 非标准代码返回 ['', 去空格大写原值]，调用方自行回退。
+ */
+export const splitPrefixCode = (raw: string): [string, string] => {
+    const s = normalizeStockCode(raw);
+    const m = s.match(/^(SH|SZ|BJ)(\d{6})$/);
+    return m ? [m[1], m[2]] : ['', (raw || '').trim().toUpperCase()];
 };
 
 /**
@@ -88,13 +135,13 @@ export const resolveCode = (entryKey: string | null, pos: RawPosition): string =
         key,
     ];
     for (const candidate of candidates) {
-        // 持仓键可能带方向后缀（如 SH600036::long / ::short），先剥离再归一化
+        // 持仓键可能带方向后缀（如 600036.SH::long / ::short），先剥离再归一化
         const text = String(candidate || '').trim().split('::')[0].trim();
         if (!text) continue;
         if (text === '0' && String(pos.symbol || '').trim()) continue;
-        return normalizeStockCode(text);
+        return normalizeSymbol(text);
     }
-    return normalizeStockCode(key.split('::')[0]) || '--';
+    return normalizeSymbol(key.split('::')[0]) || '--';
 };
 
 /**

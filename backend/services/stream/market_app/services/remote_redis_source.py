@@ -2,8 +2,9 @@
 远程 Redis 行情快照数据源
 读取外部推送到 Redis 的全市场快照数据
 
-优先 Key 格式: market:snapshot:{symbol}  (e.g. market:snapshot:sh600000)
-兼容 Key 格式: stock:{code}.{market}      (e.g. stock:600000.SH)
+优先 Key 格式: market:snapshot:{symbol}  (e.g. market:snapshot:600000.SH)
+兼容 Key 格式: market:snapshot:{prefix}   (e.g. market:snapshot:sh600000 大小写)
+                stock:{code}.{market}      (e.g. stock:600000.SH Legacy)
 字段:          Now, Open, High, Low, PreClose/Close, Volume, Amount, timestamp
 """
 
@@ -42,6 +43,8 @@ class RemoteRedisDataSource(DataSourceAdapter):
         self._password = remote_quote_redis_password()
         self._db = remote_quote_redis_db()
         self._client: aioredis.Redis | None = None
+        # 远端行情 Redis 为上游只读总线；写入被拒时只告警一次，避免刷屏。
+        self._write_warned = False
 
     def _get_client(self) -> aioredis.Redis:
         if self._client is None:
@@ -58,22 +61,35 @@ class RemoteRedisDataSource(DataSourceAdapter):
 
     def _normalize_symbol(self, symbol: str) -> str:
         """
-        统一转换为 Prefix 格式 (SH600000)
+        统一转换为 Suffix 正典格式 (600000.SH)
         遵循 AGENTS.md 强制规范
         """
-        return StockCodeUtil.to_prefix(symbol)
+        return StockCodeUtil.normalize(symbol)
+
+    def _snapshot_candidates(self, normalized_symbol: str) -> list[str]:
+        """快照读键候选（新后缀优先，老大小写前缀 + Legacy 兼容）。
+
+        normalized_symbol 为后缀正典（如 600000.SH）。
+        """
+        code, market = StockCodeUtil.split_suffix(normalized_symbol)
+        if not market:
+            # 非 A 股（港股/美股）：仅原样键，无新老之分
+            return [f"market:snapshot:{normalized_symbol}"]
+        legacy = f"{code}.{market}"  # 600000.SH
+        prefix = StockCodeUtil.to_prefix(legacy)  # SH600000
+        return [
+            f"market:snapshot:{legacy}",
+            f"market:snapshot:{prefix.lower()}",
+            f"market:snapshot:{prefix}",
+            f"stock:{legacy}",
+        ]
 
     def _to_snapshot_symbol(self, normalized_symbol: str) -> str:
         """
-        将标准化代码转换为规范中的 symbol（小写市场前缀）
-        600000.SH -> sh600000
+        将标准化代码转换为快照键中的 symbol 部分（后缀正典）。
+        600000.SH -> 600000.SH（保留方法签名供外部调用兼容）
         """
-        parts = normalized_symbol.split(".")
-        if len(parts) != 2:
-            return normalized_symbol.lower()
-        code, market = parts[0], parts[1].upper()
-        prefix = "sh" if market == "SH" else ("sz" if market == "SZ" else "bj")
-        return f"{prefix}{code}"
+        return StockCodeUtil.normalize(normalized_symbol)
 
     async def fetch_quote(self, symbol: str) -> dict[str, Any] | None:
         """从远程 Redis 读取单只行情快照"""
@@ -92,22 +108,18 @@ class RemoteRedisDataSource(DataSourceAdapter):
         normalized_map = {self._normalize_symbol(s): s for s in symbols}
 
         # 批量构建查询 Key 列表 (全路径组合，增加容错性)
-        # 每个 normalized symbol 会产生 3 个 candidate snapshot keys:
-        # 1. market:snapshot:sh600000 (规范小写前缀)
-        # 2. market:snapshot:SH600000 (规范大写前缀)
-        # 3. stock:600000.SH (Legacy 后缀格式)
+        # 每个 normalized symbol 会产生至多 4 个 candidate snapshot keys:
+        # 1. market:snapshot:600000.SH (后缀正典)
+        # 2. market:snapshot:sh600000 (老规范小写前缀)
+        # 3. market:snapshot:SH600000 (老规范大写前缀)
+        # 4. stock:600000.SH (Legacy 后缀格式)
 
         pipeline_keys = []
-        symbol_key_count = 3
+        key_counts: list[int] = []
         for n in normalized_map.keys():
-            # n 已经是 SH600000 格式
-            prefix = n[:2].lower() # sh
-            code = n[2:] # 600000
-            legacy = f"{code}.{n[:2].upper()}" # 600000.SH
-
-            pipeline_keys.append(f"market:snapshot:{prefix}{code}")
-            pipeline_keys.append(f"market:snapshot:{n}")
-            pipeline_keys.append(f"stock:{legacy}")
+            candidates = self._snapshot_candidates(n)
+            pipeline_keys.extend(candidates)
+            key_counts.append(len(candidates))
 
         try:
             async with client.pipeline(transaction=False) as pipe:
@@ -121,15 +133,18 @@ class RemoteRedisDataSource(DataSourceAdapter):
         final_quotes = []
         now_ts = time.time()
 
-        for idx, (normalized, original_symbol) in enumerate(normalized_map.items()):
-            # 每个 symbol 对应 3 个结果，取第一个非空的
-            start_idx = idx * symbol_key_count
+        offset = 0
+        for (normalized, original_symbol), count in zip(
+            normalized_map.items(), key_counts, strict=False
+        ):
+            # 每个 symbol 对应 count 个结果，取第一个非空的
             data = None
-            for offset in range(symbol_key_count):
-                candidate = results[start_idx + offset]
+            for k in range(count):
+                candidate = results[offset + k]
                 if candidate:
                     data = candidate
                     break
+            offset += count
 
             if not data:
                 continue
@@ -210,14 +225,26 @@ class RemoteRedisDataSource(DataSourceAdapter):
         """
         client = self._get_client()
         normalized = self._normalize_symbol(symbol)
-        series_key = f"market:series:{normalized}"
+        series_keys = [f"market:series:{normalized}"]
+        # 老前缀键兼容：后缀正典之外再试 sh/SH 前缀写法
+        code, market = StockCodeUtil.split_suffix(normalized)
+        if market:
+            _prefix = StockCodeUtil.to_prefix(f"{code}.{market}")
+            series_keys.append(f"market:series:{_prefix.lower()}")
+            series_keys.append(f"market:series:{_prefix}")
 
         now_ts = int(time.time())
         start_ts = now_ts - seconds
 
         try:
-            # 获取时间窗口内的所有快照点
-            raw_data = await client.zrange(series_key, start_ts, now_ts, byscore=True)
+            # 获取时间窗口内的所有快照点（新键优先，未命中逐个试老键）
+            raw_data: list = []
+            for series_key in series_keys:
+                raw_data = await client.zrange(
+                    series_key, start_ts, now_ts, byscore=True
+                )
+                if raw_data:
+                    break
 
             results = []
             for item in raw_data:
@@ -238,7 +265,7 @@ class RemoteRedisDataSource(DataSourceAdapter):
         max_points: int = 6000,
         ttl_seconds: int = 172800,
     ) -> bool:
-        """将实时行情追加到时序 ZSET，形成可回放序列闭环。"""
+        """将实时行情追加到时序 ZSET，形成可回放序列闭环（写后缀正典键）。"""
         client = self._get_client()
         normalized = self._normalize_symbol(symbol)
         series_key = f"market:series:{normalized}"
@@ -277,35 +304,47 @@ class RemoteRedisDataSource(DataSourceAdapter):
                 await pipe.execute()
             return True
         except Exception as e:
-            logger.error(f"[RemoteRedis] 写入时序数据失败 {symbol}: {e}")
+            if not self._write_warned:
+                self._write_warned = True
+                logger.warning(
+                    "[RemoteRedis] 写入时序数据被拒（远端行情 Redis 应只读，"
+                    "后续不再重复告警）: %s",
+                    e,
+                )
             return False
 
     async def fetch_symbols(self, market: str | None = None) -> list[dict[str, Any]]:
-        """扫描远程 Redis 返回全部股票代码列表（优先新规范 key）"""
+        """扫描远程 Redis 返回全部股票代码列表（新老键全扫，对外一律后缀）"""
         try:
             client = self._get_client()
-            pattern = (
-                f"market:snapshot:{market.lower()}*" if market else "market:snapshot:*"
-            )
+            # market:snapshot:* 一次扫出新后缀键 + 老大小写前缀键；
+            # market 参数只做结果过滤（后缀键不以市场开头，无法做 scan 前缀过滤）
             keys: list[str] = []
             cursor = 0
             while True:
-                cursor, batch = await client.scan(cursor, match=pattern, count=500)
+                cursor, batch = await client.scan(
+                    cursor, match="market:snapshot:*", count=500
+                )
                 keys.extend(batch)
                 if cursor == 0:
                     break
 
             # 兼容旧 key，避免迁移窗口丢标的
-            if not keys:
-                legacy_pattern = f"stock:*.{market.upper()}" if market else "stock:*"
-                cursor = 0
-                while True:
-                    cursor, batch = await client.scan(
-                        cursor, match=legacy_pattern, count=500
-                    )
-                    keys.extend(batch)
-                    if cursor == 0:
-                        break
+            legacy_pattern = "stock:*"
+            if market:
+                m_up = market.upper()
+                if m_up in ("SH", "SZ", "BJ"):
+                    legacy_pattern = f"stock:*.{m_up}"
+            cursor = 0
+            while True:
+                cursor, batch = await client.scan(
+                    cursor, match=legacy_pattern, count=500
+                )
+                keys.extend(batch)
+                if cursor == 0:
+                    break
+
+            wanted = (market or "").strip().upper() or None
 
             result = []
             for key in keys:
@@ -313,22 +352,37 @@ class RemoteRedisDataSource(DataSourceAdapter):
                     snap_symbol = key.removeprefix("market:snapshot:")
                     if len(snap_symbol) < 3:
                         continue
-                    prefix = snap_symbol[:2].upper()
-                    code = snap_symbol[2:]
-                    mapped_market = (
-                        "SH" if prefix == "SH" else ("SZ" if prefix == "SZ" else "BJ")
-                    )
-                    result.append(
-                        {
-                            "symbol": f"{code}.{mapped_market}",
-                            "code": code,
-                            "market": mapped_market,
-                        }
-                    )
+                    # 先按后缀解析（新键），再按前缀解析（老键）
+                    snap_code, snap_market = StockCodeUtil.split_suffix(snap_symbol)
+                    if not snap_market:
+                        snap_market, snap_code = StockCodeUtil.split_prefix(snap_symbol)
+                    if snap_market:
+                        if wanted and wanted not in ("CN", "ALL"):
+                            if wanted != snap_market:
+                                continue
+                        result.append(
+                            {
+                                "symbol": f"{snap_code}.{snap_market}",
+                                "code": snap_code,
+                                "market": snap_market,
+                            }
+                        )
+                    else:
+                        # 未知市场不硬判 BJ，原样透传
+                        result.append(
+                            {
+                                "symbol": snap_symbol,
+                                "code": snap_symbol,
+                                "market": "",
+                            }
+                        )
                 elif key.startswith("stock:"):
                     code_market = key.removeprefix("stock:")
                     parts = code_market.split(".")
                     if len(parts) == 2:
+                        if wanted and wanted not in ("CN", "ALL"):
+                            if wanted != parts[1].upper():
+                                continue
                         result.append(
                             {
                                 "symbol": code_market,

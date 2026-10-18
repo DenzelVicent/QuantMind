@@ -255,7 +255,7 @@ export const StockScoreChart: React.FC<Props> = ({ symbol, name, stockInfo, mark
       try {
         const [kresp, sresp, idxresp] = await Promise.all([
           fetchQuantdbKline(suffixSymbol, days, market),
-          modelTrainingService.getStockInferenceHistory(symbol, days, modelId),
+          modelTrainingService.getStockInferenceHistory(suffixSymbol, days, modelId),
           fetchShanghaiIndex(days),
         ]);
         if (cancelled) return;
@@ -271,7 +271,7 @@ export const StockScoreChart: React.FC<Props> = ({ symbol, name, stockInfo, mark
     }
     void load();
     return () => { cancelled = true; };
-  }, [suffixSymbol, symbol, market, days, modelId]);
+  }, [suffixSymbol, market, days, modelId]);
 
   // 切换模型时重新加载该模型的分数
   useEffect(() => {
@@ -280,7 +280,7 @@ export const StockScoreChart: React.FC<Props> = ({ symbol, name, stockInfo, mark
       setLoading(true);
       try {
         const sresp = await modelTrainingService.getStockInferenceHistory(
-          symbol, days, selectedModel === 'all' ? undefined : selectedModel,
+          suffixSymbol, days, selectedModel === 'all' ? undefined : selectedModel,
         );
         if (cancelled) return;
         setScoreItems(sresp?.items ?? []);
@@ -293,7 +293,7 @@ export const StockScoreChart: React.FC<Props> = ({ symbol, name, stockInfo, mark
     if (availableModels.length > 0) void loadModelScores();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedModel, symbol, days]);
+  }, [selectedModel, suffixSymbol, days]);
 
   // 外部传入的 modelId 变化时同步选中（例如切换到另一个模型的推理详情）
   useEffect(() => {

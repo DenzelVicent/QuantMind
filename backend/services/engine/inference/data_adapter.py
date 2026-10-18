@@ -64,14 +64,14 @@ class DataAdapter:
                 df["datetime"] = pd.to_datetime(df["timestamp"])
 
             if "symbol" in df.columns:
-                df["instrument"] = df["symbol"].apply(StockCodeUtil.to_prefix)
+                df["instrument"] = df["symbol"].apply(StockCodeUtil.normalize)
             elif "instrument" in df.columns:
-                df["instrument"] = df["instrument"].apply(StockCodeUtil.to_prefix)
+                df["instrument"] = df["instrument"].apply(StockCodeUtil.normalize)
 
             # Process each row: append to history buffer and compute indicators
             for idx in range(len(df)):
                 row = df.iloc[idx]
-                symbol = StockCodeUtil.to_prefix(row.get("instrument") or row.get("symbol", "unknown"))
+                symbol = StockCodeUtil.normalize(row.get("instrument") or row.get("symbol", "unknown"))
 
                 # Build bar dict for history buffer
                 bar = {}

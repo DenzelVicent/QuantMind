@@ -46,17 +46,25 @@ async def save_pool_file(
         import anyio
 
         def _to_qlib_instrument(symbol: str) -> str:
+            from backend.shared.stock_utils import StockCodeUtil
+
             s = (symbol or "").strip()
             if not s:
                 return ""
+            canonical = StockCodeUtil.to_prefix(s)
+            if (
+                len(canonical) == 8
+                and canonical[:2] in ("SH", "SZ", "BJ")
+                and canonical[2:].isdigit()
+            ):
+                return canonical
+            # 非标准尾巴沿用原清洗逻辑（含 BJ 与后缀分支）
             u = s.upper()
-            if len(u) == 8 and (u.startswith("SZ") or u.startswith("SH")) and u[2:].isdigit():
-                return u
             if "." in u:
                 base, suffix = u.split(".", 1)
                 base = base.strip()
                 suffix = suffix.strip()
-                if suffix in ("SZ", "SH") and base.isdigit():
+                if suffix in ("SZ", "SH", "BJ") and base.isdigit():
                     return f"{suffix}{base.zfill(6)}"
             if (u.startswith("SZ") or u.startswith("SH")) and len(u) >= 8:
                 tail = "".join(ch for ch in u[2:] if ch.isdigit())

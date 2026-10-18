@@ -32,7 +32,9 @@ async def fill_data_super_fast(file_path):
         
         # 预处理数据
         df_2026['amount'] = df_2026['close'] * df_2026['volume']
-        df_2026['symbol'] = df_2026['symbol'].str.upper()
+        from backend.shared.stock_utils import StockCodeUtil
+
+        df_2026['symbol'] = df_2026['symbol'].map(lambda s: StockCodeUtil.normalize(str(s)))
         df_2026['adj_factor'] = df_2026['factor'].astype(float)
         df_2026['stock_name'] = ""
         df_2026['industry'] = ""

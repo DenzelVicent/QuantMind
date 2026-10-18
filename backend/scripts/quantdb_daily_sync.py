@@ -661,12 +661,10 @@ def _get_engine():
 
 
 def _to_internal(symbol: str) -> str:
-    """600036.SH -> SH600036 (PG internal format)"""
-    s = symbol.strip().upper()
-    if "." in s:
-        code, ex = s.split(".", 1)
-        return f"{ex}{code}"
-    return s
+    """任意输入 -> 后缀正典 600036.SH (PG 唯一通用格式)。"""
+    from backend.shared.stock_utils import StockCodeUtil
+
+    return StockCodeUtil.normalize(symbol)
 
 
 QUANTDB_EPOCH = date(2016, 1, 4)

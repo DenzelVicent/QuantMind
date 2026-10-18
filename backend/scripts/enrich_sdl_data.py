@@ -832,22 +832,24 @@ def _fill_idx_zz1000(engine, dry_run: bool = False) -> int:
         print("     ❌ akshare 未能取到中证1000成分")
         return 0
 
-    def _to_prefix(code: str, exchange: str) -> str:
+    def _to_suffix(code: str, exchange: str) -> str:
+        code = str(code).strip().upper()
         if "深圳" in exchange:
-            return f"SZ{code}"
+            return f"{code}.SZ"
         if "上海" in exchange or "上证" in exchange:
-            return f"SH{code}"
+            return f"{code}.SH"
         if "北京" in exchange:
-            return f"BJ{code}"
+            return f"{code}.BJ"
         if code[:1] in ("6", "9"):
-            return f"SH{code}"
+            return f"{code}.SH"
         if code[:1] in ("4", "8"):
-            return f"BJ{code}"
-        return f"SZ{code}"
+            return f"{code}.BJ"
+        return f"{code}.SZ"
 
     codes = df_cons["成分券代码"].astype(str).str.zfill(6)
     constituents = {
-        _to_prefix(c, e) for c, e in zip(codes, df_cons["交易所"].astype(str))
+        _to_suffix(c, e)
+        for c, e in zip(codes, df_cons["交易所"].astype(str), strict=False)
     }
     print(f"     中证1000成分: {len(constituents)} 只")
     df = pd.DataFrame({"symbol": sorted(constituents)})

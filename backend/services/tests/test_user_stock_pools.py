@@ -10,20 +10,20 @@ import pytest
 from backend.shared.stock_pool.user_pools import (
     CODE_FAVORITES,
     CODE_RESEARCH,
-    _to_prefix,
+    _to_suffix,
     members_as_watchlist_items,
 )
 
 
-def test_to_prefix_normalizes_cn_codes():
-    assert _to_prefix("600036.SH") == "SH600036"
-    assert _to_prefix("SH600036") == "SH600036"
-    assert _to_prefix("bad") is None
+def test_to_suffix_normalizes_cn_codes():
+    assert _to_suffix("600036.SH") == "600036.SH"
+    assert _to_suffix("SH600036") == "600036.SH"
+    assert _to_suffix("bad") is None
 
 
 def test_members_as_watchlist_items_shape():
     items = members_as_watchlist_items(["SH600036", "SZ000001"])
-    assert items[0]["symbol"] == "SH600036"
+    assert items[0]["symbol"] == "600036.SH"
     assert "stockName" in items[0]
 
 

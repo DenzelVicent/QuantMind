@@ -4,7 +4,7 @@ import { Search, Star, X, Clock3, TrendingUp } from 'lucide-react';
 import { Spin } from 'antd';
 import { stockTerminalService } from '../services/stockTerminalService';
 import { StockListItem } from '../types';
-import { normalizeStockCode } from '../../../utils/portfolioUtils';
+import { normalizeSymbol } from '../../../utils/portfolioUtils';
 
 interface Props {
   onSelect: (item: StockListItem) => void;
@@ -65,7 +65,9 @@ export function StockSearchBar({ onSelect, watchlistSymbols, placeholder = '搜�
   }, [q, open]);
 
   const handleSelect = (it: StockListItem) => {
-    const key = `${it.symbol}|${it.name}`;
+    // 历史键按后缀式存，保证回放与 watchlist 比对同口径
+    const normalizedSymbol = normalizeSymbol(it.symbol);
+    const key = `${normalizedSymbol}|${it.name}`;
     const next = [key, ...history.filter((h) => h !== key)].slice(0, 5);
     setHistory(next);
     localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
@@ -133,7 +135,7 @@ export function StockSearchBar({ onSelect, watchlistSymbols, placeholder = '搜�
                 </div>
               ) : items.length ? (
                 items.map((it, idx) => {
-                  const watched = watchlistSymbols.has(normalizeStockCode(it.symbol));
+                  const watched = watchlistSymbols.has(normalizeSymbol(it.symbol));
                   const up = (it.pct_change ?? 0) >= 0;
                   return (
                     <button
@@ -193,7 +195,7 @@ export function StockSearchBar({ onSelect, watchlistSymbols, placeholder = '搜�
                           onClick={async () => {
                             try {
                               const resp = await stockTerminalService.getStockList({ q: sym, page: 1, page_size: 10 });
-                              const hit = resp.items?.find((x) => x.symbol === sym) ?? resp.items?.[0];
+                              const hit = resp.items?.find((x) => normalizeSymbol(x.symbol) === normalizeSymbol(sym)) ?? resp.items?.[0];
                               if (hit) handleSelect(hit);
                               else handleSelect({ symbol: sym, name: name || sym } as StockListItem);
                             } catch {

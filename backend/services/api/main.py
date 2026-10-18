@@ -1,4 +1,5 @@
 import html as _html
+import asyncio
 import os
 import re
 from datetime import datetime, timezone
@@ -31,7 +32,11 @@ from backend.services.api.routers.engine_proxy import router as engine_proxy_rou
 from backend.services.api.routers.files import router as files_router
 from backend.services.api.market_analysis.router import router as market_analysis_router
 from backend.services.api.routers.market_kline import router as market_kline_router
+from backend.services.api.routers.openapi import router as openapi_router
 from backend.services.api.routers.model_training import router as model_training_router
+from backend.services.api.routers.model_rolling_retrain import (
+    router as model_rolling_retrain_router,
+)
 from backend.services.api.routers.training_per_model import build_per_model_router
 from backend.services.api.user_app.middleware.auth import get_current_user
 from backend.services.api.routers.news import (
@@ -123,6 +128,17 @@ async def lifespan(app: FastAPI):
         start_run_reconciler()
     except Exception as e:
         logger.error(f"❌ run reconciler start failed: {e}", exc_info=True)
+
+    # 本地训练残留容器兜底清理（只删 DB 已终态/孤儿的 Exited qm-train-*，
+    # running/waiting_callback 一律跳过；失败不影响启动健康）
+    try:
+        from backend.services.engine.training.local_docker_orchestrator import (
+            cleanup_stale_training_containers,
+        )
+
+        asyncio.create_task(cleanup_stale_training_containers())
+    except Exception as e:
+        logger.error(f"❌ stale training cleanup schedule failed: {e}", exc_info=True)
 
     # 每日自动强制更新轮询（开关由管理后台保存于 Redis；不可用/异常均不影响启动健康）
     try:
@@ -391,6 +407,9 @@ app.include_router(
     model_training_router, prefix="/api/v1/models", tags=["ModelTraining"]
 )
 app.include_router(
+    model_rolling_retrain_router, prefix="/api/v1/models", tags=["ModelTraining"]
+)
+app.include_router(
     build_per_model_router(get_current_user),
     prefix="/api/v1/models",
     tags=["ModelTraining"],
@@ -404,6 +423,7 @@ app.include_router(api_keys_router, prefix="/api/v1")
 app.include_router(asset_router, prefix="/api/v1/asset", tags=["Asset"])
 app.include_router(market_kline_router)
 app.include_router(market_analysis_router)
+app.include_router(openapi_router)  # SDK 只读网关 /api/v1/open（AK/SK 令牌鉴权，与代理路由无冲突）
 app.include_router(
     subscriptions_router, prefix="/api/v1/subscription", tags=["Subscriptions"]
 )

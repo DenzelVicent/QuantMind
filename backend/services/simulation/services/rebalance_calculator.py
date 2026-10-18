@@ -56,6 +56,13 @@ class StrategyConfig:
     # 首日（day_index=0）必调仓建仓；1 = 每个交易日都调仓。
     rebalance_days: int = 1
 
+    # ── 基本面 / ST 过滤（模拟盘托管链路；回放路径不读这些字段，不受影响）──
+    # f_ 约束（去前缀，如 {"pe_ttm_max": 80}），由 FundamentalAligner 按交易日
+    # features_daily 快照执行；与回测 recording_strategy、实盘 manual_execution 同口径。
+    fundamental_constraints: dict[str, Any] = field(default_factory=dict)
+    # 是否剔除 ST 标的（仅 CN；ST 名单来自本地 instrument_detail 快照）。
+    exclude_st: bool = True
+
 
 @dataclass
 class Quote:
@@ -280,29 +287,46 @@ class RebalanceCalculator:
         strategy: StrategyConfig,
     ) -> dict[str, int]:
         """增量调仓的目标持仓：保留股维持现股数，剔除股目标 0（不在目标里即全卖），
-        新增股用剔除持仓腾出的资金（按当前价估算）均分、取整手。"""
+        新增股用剔除持仓腾出的资金（按当前价估算）均分、取整手。
+
+        买卖对账（bug fix）：新增只数不再钉死在「计划剔除数」，而是与「实际可释放
+        资金的剔除股」对齐——只有「T+1 可卖量 > 0 且行情价有效」的剔除股才计入可
+        释放资金，并把新增上限钳到这类标的的数量。否则盘中实时行情覆盖不全时，
+        卖了 2 只却仍按 10 只去分摊买 10 只，仓位越调越胖（实测 50→53）。
+        """
         kept_set = {s.symbol for s in target_signals}
         positions = account.positions
         target: dict[str, int] = {}
 
         # 保留股：目标 = 当前股数（不产生调量单）
+        # 剔除股：只有「可卖量 > 0 且行情价有效」才计入可释放资金与新增上限。
+        # 无行情/T+1 不可卖的剔除股仍会在 _generate_orders 里（按 force_exit 兜底）
+        # 挂单留痕，但其资金不计入本轮买入，避免用卖不掉的持仓去超买。
         freed_value = 0.0
+        fundable = 0
         for sym, pos in positions.items():
             vol = int(float(pos.get("volume", 0) or 0))
             if vol <= 0:
                 continue
             if sym in kept_set:
                 target[sym] = vol
-            else:
-                quote = quotes.get(sym)
-                freed_value += vol * (quote.current_price if quote else 0.0)
+                continue
+            sell_qty = self._clamp_sell_qty(pos, 0)
+            if sell_qty <= 0:
+                continue
+            quote = quotes.get(sym)
+            if not quote or quote.current_price <= 0:
+                continue
+            freed_value += sell_qty * float(quote.current_price)
+            fundable += 1
 
-        # 新增股：目标集里未持仓的（顺序已按分数降序）
+        # 新增股：目标集里未持仓的（顺序已按分数降序），上限 = 可释放资金标的数
         held_with_vol = {
             sym for sym, pos in positions.items()
             if int(float(pos.get("volume", 0) or 0)) > 0
         }
-        add_list = [s for s in target_signals if s.symbol not in held_with_vol]
+        add_pool = [s for s in target_signals if s.symbol not in held_with_vol]
+        add_list = add_pool[:fundable]
         if add_list and freed_value > 0:
             per_value = freed_value / len(add_list)
             for s in add_list:
@@ -313,6 +337,12 @@ class RebalanceCalculator:
                 qty = int(per_value / quote.current_price // lot) * lot
                 if qty > 0:
                     target[s.symbol] = qty
+        logger.info(
+            "RebalanceCalculator: Dropout 对账 可释放标的=%d 释放资金=%.2f 新增候选=%d",
+            fundable,
+            freed_value,
+            len(add_list),
+        )
         return target
 
     def _filter_tradable(
@@ -509,6 +539,70 @@ class RebalanceCalculator:
             return 0
         return int(quantity // lot_size) * lot_size
 
+    @staticmethod
+    def _clamp_sell_qty(current_pos: dict[str, Any], target_qty: int) -> int:
+        """按 T+1 可卖量把「当前 - 目标」钳制为实际可卖股数（不可卖返回 0）。"""
+        current_qty = int(float(current_pos.get("volume", 0) or 0))
+        if current_qty <= target_qty:
+            return 0
+        sell_qty = current_qty - target_qty
+        available = current_pos.get("available_volume")
+        if available is not None:
+            sell_qty = min(sell_qty, int(float(available)))
+        return max(0, sell_qty)
+
+    def _resolve_sell(
+        self,
+        symbol: str,
+        current_pos: dict[str, Any],
+        target_qty: int,
+        quotes: dict[str, Quote],
+        force_exit_on_limit_down: bool,
+    ) -> tuple[int, float]:
+        """解析一笔减仓的「可卖股数 + 参考价」；不可卖返回 (0, 0.0)。
+
+        - T+1：有 available_volume 时按可用量钳制；
+        - 无有效行情价且开启 force_exit_on_limit_down 时，回退持仓价/成本价挂单，
+          交由撮合层显式拒绝并留痕，而非在计算阶段静默丢弃；
+        - 卖单最终被丢弃时打 WARNING，避免「该割的割不掉」再次无痕。
+        """
+        current_qty = int(float(current_pos.get("volume", 0) or 0))
+        sell_qty = self._clamp_sell_qty(current_pos, target_qty)
+        if sell_qty <= 0:
+            if current_qty > target_qty:
+                logger.warning(
+                    "RebalanceCalculator: %s 计划减仓 %d 股，但 T+1 可卖量为 0，"
+                    "本期卖单跳过（缺口待后续轮换修复）",
+                    symbol,
+                    current_qty - target_qty,
+                )
+            return 0, 0.0
+
+        quote = quotes.get(symbol)
+        price = float(quote.current_price) if quote else 0.0
+        if price <= 0 and force_exit_on_limit_down:
+            pre = current_pos.get("price") or current_pos.get("cost")
+            try:
+                price = float(pre) if pre else 0.0
+            except (TypeError, ValueError):
+                price = 0.0
+            if price > 0:
+                logger.warning(
+                    "RebalanceCalculator: %s 无有效行情价，回退持仓价 %.4f 生成卖单"
+                    "（交由撮合层判定）",
+                    symbol,
+                    price,
+                )
+        if price <= 0:
+            logger.warning(
+                "RebalanceCalculator: %s 计划减仓 %d 股，但无有效价格且未开启"
+                " force_exit_on_limit_down，卖单被丢弃",
+                symbol,
+                sell_qty,
+            )
+            return 0, 0.0
+        return sell_qty, price
+
     def _generate_orders(
         self,
         current_positions: dict[str, dict[str, Any]],
@@ -541,29 +635,21 @@ class RebalanceCalculator:
             current_qty = int(float(current_pos.get("volume", 0) or 0))
             target_qty = target_positions.get(symbol, 0)
 
-            if current_qty > target_qty:
-                sell_qty = current_qty - target_qty
-                # T+1: 可卖量钳制
-                available = current_pos.get("available_volume")
-                if available is not None:
-                    sell_qty = min(sell_qty, int(float(available)))
-                quote = quotes.get(symbol)
-                price = quote.current_price if quote else 0
-
-                # bug 4 fix: 跌停持仓也下单，交由撮合层拒绝以留下痕迹
-                if sell_qty > 0 and price <= 0 and force_exit_on_limit_down:
-                    pre = current_pos.get("price") or current_pos.get("cost")
-                    if pre:
-                        price = float(pre)
-
-                if sell_qty > 0 and price > 0:
-                    sell_orders.append(Order(
-                        symbol=symbol,
-                        side="SELL",
-                        quantity=sell_qty,
-                        price=price,
-                        reason=f"调仓卖出: 当前{current_qty} → 目标{target_qty}",
-                    ))
+            sell_qty, price = self._resolve_sell(
+                symbol,
+                current_pos,
+                target_qty,
+                quotes,
+                force_exit_on_limit_down,
+            )
+            if sell_qty > 0:
+                sell_orders.append(Order(
+                    symbol=symbol,
+                    side="SELL",
+                    quantity=sell_qty,
+                    price=price,
+                    reason=f"调仓卖出: 当前{current_qty} → 目标{target_qty}",
+                ))
 
         # 需要买入的股票 —— 按 score 降序保证可复现
         if score_order:

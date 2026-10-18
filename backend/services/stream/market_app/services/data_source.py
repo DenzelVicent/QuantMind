@@ -128,15 +128,28 @@ class TencentDataSource(DataSourceAdapter):
         return []
 
     def _format_symbol(self, symbol: str) -> str:
-        """格式化股票代码（多市场：A股 sh/sz 前缀、港股 r_hk、美股 us）"""
-        s = symbol.strip()
+        """格式化股票代码（多市场：A股 sh/sz 前缀、港股 r_hk、美股 us）。
+
+        输出为腾讯行情 API 参数格式（保持原格式要求）；输入经中枢先归一，
+        前后缀/裸码双收。
+        """
+        from backend.shared.stock_utils import StockCodeUtil
+
+        norm = StockCodeUtil.normalize(symbol) or symbol.strip()
+        s = norm.strip()
         upper = s.upper()
+        if upper.startswith("SH"):
+            return f"sh{StockCodeUtil.split_prefix(upper)[1] or s[2:]}"
+        if upper.startswith("SZ"):
+            return f"sz{StockCodeUtil.split_prefix(upper)[1] or s[2:]}"
         if s.startswith("sh") or s.startswith("sz"):
             return s
-        # 港股：0001.HK / 0700.HK → r_hk00001（5位数字）
+        # 港股：0001.HK / 0700.HK → r_hk00001（5位数字）；5 位裸码同样视为港股
         if upper.endswith(".HK"):
             code = upper.split(".")[0]
             return f"r_hk{code.zfill(5)}"
+        if upper.isdigit() and len(upper) == 5:
+            return f"r_hk{upper.zfill(5)}"
         # 美股：纯字母 ticker → usAAPL（腾讯自动带交易所后缀）
         if "." not in upper and upper.isalpha():
             return f"us{upper}"
@@ -344,16 +357,28 @@ class SinaDataSource(DataSourceAdapter):
         return []
 
     def _format_symbol(self, symbol: str) -> str:
-        """格式化股票代码"""
-        if symbol.startswith("sh") or symbol.startswith("sz"):
-            return symbol
+        """格式化股票代码（新浪 API 参数格式 sh/sz 小写前缀，保持原格式要求）。
 
-        if symbol.startswith("6"):
-            return f"sh{symbol}"
-        elif symbol.startswith("0") or symbol.startswith("3"):
-            return f"sz{symbol}"
+        输入经中枢先归一，前后缀/裸码双收。
+        """
+        from backend.shared.stock_utils import StockCodeUtil
+
+        norm = StockCodeUtil.normalize(symbol) or symbol.strip()
+        s = norm.strip()
+        code, market = StockCodeUtil.split_suffix(s)
+        if market == "SH":
+            return f"sh{code}"
+        if market == "SZ":
+            return f"sz{code}"
+        if s.startswith("sh") or s.startswith("sz"):
+            return s
+
+        if s.startswith("6"):
+            return f"sh{s}"
+        elif s.startswith("0") or s.startswith("3"):
+            return f"sz{s}"
         else:
-            return symbol
+            return s
 
     def _parse_quote(self, text: str, symbol: str) -> dict[str, Any] | None:
         """解析行情数据"""

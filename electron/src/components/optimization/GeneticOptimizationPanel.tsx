@@ -89,7 +89,7 @@ export const GeneticOptimizationPanel: React.FC = () => {
                     start_date: geneticConfig.dateRange.startDate,
                     end_date: geneticConfig.dateRange.endDate,
                     initial_capital: 10000000,
-                    benchmark: 'SH000300',
+                    benchmark: '000300.SH',
                     universe: 'csi300',
                     user_id: getCurrentUserId()
                 },

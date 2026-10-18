@@ -109,12 +109,6 @@ class SimulationPendingOrderWorker:
                         session_decision.target_trade_date
                     )
                 if not session_decision.can_execute:
-                    if session_decision.final_state == "expired":
-                        await engine.mark_expired(
-                            runtime_order, session_decision.message
-                        )
-                        processed += 1
-                        continue
                     if not session_decision.retryable:
                         await engine.mark_rejected(
                             runtime_order, session_decision.message
@@ -173,24 +167,9 @@ class SimulationPendingOrderWorker:
                             requested_quantity=float(projection_order.quantity or 0.0),
                         )
                         if not execution_result.success:
-                            if (
-                                str(execution_result.message or "")
-                                == "Order expired before execution"
-                            ):
-                                await engine.mark_expired(
-                                    runtime_order, execution_result.message
-                                )
-                            elif "queued for next valid session" in str(
-                                execution_result.message or ""
-                            ):
-                                await order_service.queue_order(
-                                    runtime_order,
-                                    str(execution_result.message or ""),
-                                )
-                            else:
-                                await engine.mark_rejected(
-                                    runtime_order, execution_result.message
-                                )
+                            await engine.mark_rejected(
+                                runtime_order, execution_result.message
+                            )
                             processed += 1
                             continue
 

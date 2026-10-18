@@ -72,7 +72,7 @@ def map_raw_corporate_action_row(
             raw_allotment=raw_allotment,
         )
 
-    normalized_symbol = StockCodeUtil.to_prefix(raw_code or raw_symbol)
+    normalized_symbol = StockCodeUtil.normalize(raw_code or raw_symbol)
 
     # Current upstream CSV semantics confirmed with user samples:
     # type=1 + bonus>0 means cash dividend where bonus is "cash per 10 shares".
@@ -205,7 +205,7 @@ def map_standard_corp_action_row(
             )
         ]
 
-    normalized_symbol = StockCodeUtil.to_prefix(raw_symbol)
+    normalized_symbol = StockCodeUtil.normalize(raw_symbol)
     dr_anomaly = _check_dr_anomaly(interest, stock_bonus, stock_gift, dr)
 
     def _note(extra: str) -> str:

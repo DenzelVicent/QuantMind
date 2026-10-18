@@ -331,7 +331,7 @@ def setup(ctx):
     ctx.start = "2026-01-05"
     ctx.end   = "2026-06-12"
     ctx.cash  = 1_000_000
-    ctx.benchmark = "SH000300"
+    ctx.benchmark = "000300.SH"
 
 def on_bar(ctx, bar):
     sym = bar.symbol

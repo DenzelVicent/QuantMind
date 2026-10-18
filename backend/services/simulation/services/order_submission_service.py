@@ -180,14 +180,6 @@ class SimulationOrderSubmissionService:
         if session_decision.target_trade_date is not None:
             order.trading_session_date = session_decision.target_trade_date
         if not session_decision.can_execute:
-            if session_decision.final_state == "expired":
-                await self.engine.mark_expired(order, session_decision.message)
-                return SimulationSubmissionOutcome(
-                    success=False,
-                    order_id=str(order.order_id),
-                    client_order_id=normalized_client_order_id,
-                    message=session_decision.message,
-                )
             if session_decision.retryable:
                 await self.order_service.queue_order(
                     order,
@@ -215,10 +207,7 @@ class SimulationOrderSubmissionService:
 
         execution_result = await self.engine.execute_order(order)
         if not execution_result.success:
-            if str(execution_result.message or "") == "Order expired before execution":
-                await self.engine.mark_expired(order, execution_result.message)
-            else:
-                await self.engine.mark_rejected(order, execution_result.message)
+            await self.engine.mark_rejected(order, execution_result.message)
             return SimulationSubmissionOutcome(
                 success=False,
                 order_id=str(order.order_id),

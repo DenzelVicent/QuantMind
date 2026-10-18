@@ -13,7 +13,7 @@ export const QlibInfoBanner: React.FC = () => (
         <li>支持股票范围与数据覆盖会随后端数据源动态变化</li>
         <li>回测频率: 日频</li>
         <li>策略类型: Top-K / 权重 / 多空 / 自定义 Qlib 策略 (可配置参数)</li>
-        <li>基准指数: 沪深300 (SH000300)</li>
+        <li>基准指数: 沪深300 (000300.SH)</li>
         <li className="font-medium">
           交易费率（按成交金额比例收取）:
           <ul className="list-none ml-6 mt-1 space-y-0.5 text-xs">

@@ -42,11 +42,20 @@ def _data_dir() -> Path | None:
 
 
 def _norm_symbol(symbol: str) -> str:
-    """Normalize symbol for file lookup: 00700.HK -> 0700.HK, AAPL -> AAPL."""
+    """Normalize symbol for file lookup: 00700.HK -> 700.HK, AAPL -> AAPL.
+
+    文件名口径（外部数据集命名，保持原格式）；输入经中枢先归一，HK/US 双收。
+    """
+    from backend.shared.stock_utils import StockCodeUtil
+
     s = symbol.strip().upper()
-    if s.endswith(".HK"):
-        code = s.split(".")[0]
-        return f"{int(code)}.HK"
+    hk = s if s.endswith(".HK") else StockCodeUtil.to_hk_suffix(s)
+    if hk.endswith(".HK"):
+        code = hk.split(".")[0]
+        try:
+            return f"{int(code)}.HK"
+        except ValueError:
+            return hk
     return s
 
 

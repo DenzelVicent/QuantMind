@@ -65,6 +65,70 @@ _QUOTE_PCT_FIELDS = ("pct_chg", "pct_change", "change_percent", "change_pct", "p
 QuoteFetcher = Callable[[list[str]], dict[str, QuoteView]]
 ExecuteHook = Callable[..., Any]
 
+_remote_quote_client = None
+
+
+def _get_remote_quote_client():
+    """远端行情快照 Redis（同步客户端，与 stream/模拟撮合同源）。"""
+    global _remote_quote_client
+    if _remote_quote_client is not None:
+        return _remote_quote_client
+    try:
+        import redis as redis_lib
+
+        from backend.shared.quote_redis_config import (
+            remote_quote_redis_db,
+            remote_quote_redis_host,
+            remote_quote_redis_password,
+            remote_quote_redis_port,
+        )
+
+        _remote_quote_client = redis_lib.Redis(
+            host=remote_quote_redis_host(),
+            port=remote_quote_redis_port(),
+            password=remote_quote_redis_password(),
+            db=remote_quote_redis_db(),
+            decode_responses=True,
+            socket_connect_timeout=3,
+            socket_timeout=5,
+        )
+        _remote_quote_client.ping()
+    except Exception as exc:
+        logger.debug("risk trigger remote quote redis unavailable: %s", exc)
+        _remote_quote_client = None
+    return _remote_quote_client
+
+
+def _fetch_from_client(client: Any, symbols: list[str]) -> dict[str, QuoteView]:
+    out: dict[str, QuoteView] = {}
+    try:
+        pipe = client.pipeline(transaction=False)
+        planned: list[tuple[str, str]] = []
+        for symbol in symbols:
+            for key in _snapshot_keys(symbol):
+                pipe.hgetall(key)
+                planned.append((symbol, key))
+        rows = pipe.execute()
+    except Exception as exc:
+        logger.debug("risk trigger quote pipeline failed: %s", exc)
+        return out
+    for (symbol, _key), raw in zip(planned, rows, strict=False):
+        if symbol in out:
+            continue
+        if not isinstance(raw, dict):
+            continue
+        view = quote_from_hash(symbol, raw)
+        if view is None:
+            continue
+        out[symbol] = view
+        suffix = StockCodeUtil.to_suffix(symbol)
+        prefix = StockCodeUtil.to_prefix(symbol)
+        if suffix:
+            out.setdefault(suffix, view)
+        if prefix:
+            out.setdefault(prefix, view)
+    return out
+
 
 def today_trade_date(now: datetime | None = None) -> date:
     current = now or datetime.now(_SH_TZ)
@@ -105,8 +169,9 @@ def _snapshot_keys(symbol: str) -> list[str]:
     if prefix:
         keys.append(f"market:snapshot:{prefix.lower()}")
         keys.append(f"market:snapshot:{prefix}")
-        code = prefix[2:]
-        market = prefix[:2]
+        market, code = StockCodeUtil.split_prefix(prefix)
+        if not market:
+            market, code = prefix[:2], prefix[2:]
         keys.append(f"stock:{code}.{market}")
     if suffix:
         keys.append(f"market:snapshot:{suffix}")
@@ -160,37 +225,43 @@ def quote_from_hash(symbol: str, data: Mapping[str, Any] | None) -> QuoteView | 
 
 
 def fetch_quotes_from_redis(redis: Any, symbols: list[str]) -> dict[str, QuoteView]:
-    client = getattr(redis, "client", redis)
-    out: dict[str, QuoteView] = {}
-    if client is None or not symbols:
-        return out
-    try:
-        pipe = client.pipeline(transaction=False)
-        planned: list[tuple[str, str]] = []
-        for symbol in symbols:
-            for key in _snapshot_keys(symbol):
-                pipe.hgetall(key)
-                planned.append((symbol, key))
-        rows = pipe.execute()
-    except Exception as exc:
-        logger.debug("risk trigger quote pipeline failed: %s", exc)
-        return out
+    """本地交易库优先，缺失部分回退远端行情库（quantmindai.cn db3）。
 
-    for (symbol, _key), raw in zip(planned, rows, strict=False):
-        if symbol in out:
-            continue
-        if not isinstance(raw, dict):
-            continue
-        view = quote_from_hash(symbol, raw)
-        if view is None:
-            continue
-        out[symbol] = view
-        suffix = StockCodeUtil.to_suffix(symbol)
-        prefix = StockCodeUtil.to_prefix(symbol)
-        if suffix:
-            out.setdefault(suffix, view)
-        if prefix:
-            out.setdefault(prefix, view)
+    本地 db2 从不写入 market:snapshot:*，此前直接返回空导致全员
+    skipped_no_quote；此处对未命中的 symbol 再查远端一次。
+    """
+    if not symbols:
+        return {}
+    out: dict[str, QuoteView] = {}
+    client = getattr(redis, "client", redis)
+    if client is not None:
+        out = _fetch_from_client(client, symbols)
+    missing = [s for s in dict.fromkeys(symbols) if s not in out]
+    if not missing:
+        return out
+    remote = _get_remote_quote_client()
+    if remote is None:
+        return out
+    # 避免远端与本地是同一实例时重复打 pipeline
+    try:
+        local_params = (
+            getattr(client, "connection_pool", None).connection_kwargs
+            if client is not None
+            else {}
+        )
+        remote_params = getattr(remote, "connection_pool", None).connection_kwargs
+        if (
+            local_params
+            and remote_params
+            and local_params.get("host") == remote_params.get("host")
+            and local_params.get("port") == remote_params.get("port")
+            and local_params.get("db") == remote_params.get("db")
+        ):
+            return out
+    except Exception:
+        pass
+    remote_out = _fetch_from_client(remote, missing)
+    out.update(remote_out)
     return out
 
 

@@ -193,6 +193,22 @@ async def test_execute_order_allows_stale_market_fill_when_flagged():
 
 
 @pytest.mark.asyncio
+async def test_execute_order_partially_fills_unverified_large_order(monkeypatch):
+    """B 拆单：无量验证超限不再整单拒绝，按金额上限部分成交。"""
+    monkeypatch.setenv("SIM_LIQUIDITY_UNVERIFIED_MAX_NOTIONAL", "100000")
+    engine, manager = _engine(_snapshot(price=32.27, recent_volume=None))
+
+    result = await engine.execute_order(_make_order(OrderSide.BUY, quantity=8_200))
+
+    assert result.success is True
+    assert result.quantity == 3_000
+    assert result.requested_quantity == 8_200
+    assert result.message == "partially_filled"
+    _, kwargs = manager.update_balance.call_args
+    assert kwargs["delta_volume"] == 3_000
+
+
+@pytest.mark.asyncio
 async def test_execute_order_partially_fills_at_participation_cap(monkeypatch):
     monkeypatch.setenv("SIMULATION_MAX_PARTICIPATION_RATE", "0.10")
     engine, manager = _engine(_snapshot(price=10.0, recent_volume=5_000))

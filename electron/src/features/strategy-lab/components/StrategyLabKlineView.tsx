@@ -15,6 +15,7 @@ import axios from 'axios';
 import { authService } from '../../auth/services/authService';
 import { SERVICE_ENDPOINTS } from '../../../config/services';
 import type { StrategyLabRunResult, StrategyLabTradeRecord } from '../types';
+import { toSuffixCode } from '../../../utils/portfolioUtils';
 
 const { Text } = Typography;
 
@@ -38,17 +39,14 @@ const baseURL =
 /** Convert SDK symbol (sh600519 / 00700.HK / AAPL) → kline API format. */
 function toKlineParams(sdkSymbol: string): { symbol: string; market: 'A' | 'HK' | 'US' } {
   const s = sdkSymbol.trim();
-  const lower = s.toLowerCase();
-  if (lower.startsWith('sh') || lower.startsWith('sz') || lower.startsWith('bj')) {
-    const prefix = lower.slice(0, 2).toUpperCase();
-    const code = s.slice(2);
-    return { symbol: `${code}.${prefix}`, market: 'A' };
+  // A 股统一走 toSuffixCode（sh600519 / SH600519 / 600519.SH / 小写后缀全归一为 600519.SH）
+  const suffix = toSuffixCode(s);
+  if (/^\d{6}\.(SH|SZ|BJ)$/.test(suffix)) {
+    return { symbol: suffix, market: 'A' };
   }
   if (s.endsWith('.HK') || /^\d{4,5}$/.test(s)) {
     return { symbol: s.endsWith('.HK') ? s : s, market: 'HK' };
   }
-  // Already in 600519.SH style
-  if (/\.(SH|SZ|BJ)$/i.test(s)) return { symbol: s.toUpperCase(), market: 'A' };
   return { symbol: s.toUpperCase(), market: 'US' };
 }
 

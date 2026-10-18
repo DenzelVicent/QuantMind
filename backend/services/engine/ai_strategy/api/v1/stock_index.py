@@ -33,11 +33,13 @@ def _now_iso() -> str:
 
 
 def _normalize_symbol(symbol: str) -> str:
-    return StockCodeUtil.to_prefix(symbol)
+    return StockCodeUtil.normalize(symbol)
 
 
 def _symbol_to_exchange(symbol: str) -> str:
     normalized = _normalize_symbol(symbol)
+    if "." in normalized:
+        return normalized.split(".", 1)[1]
     return normalized[:2] if len(normalized) >= 8 else ""
 
 

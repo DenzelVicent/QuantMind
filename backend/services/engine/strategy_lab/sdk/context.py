@@ -43,7 +43,9 @@ _DEFAULTS: dict[str, Any] = {
     "start": None,
     "end": None,
     "cash": None,
-    "benchmark": "SH000300",
+    # 基准指数：后缀正典（000300.SH）；Qlib 边界经 benchmark_symbol.normalize
+    # 转小写 qlib 形（sh000300），to_qlib 同理接受后缀。
+    "benchmark": "000300.SH",
     "commission": 0.0003,
     "slippage": 0.0005,
     "tax_sell": 0.0005,

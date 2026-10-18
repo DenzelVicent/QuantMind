@@ -91,7 +91,11 @@ class TradeService:
         if getattr(query, "order_id", None):
             filters.append(Trade.order_id == query.order_id)
         if query.symbol:
-            filters.append(Trade.symbol == query.symbol.upper())
+            from backend.shared.stock_utils import StockCodeUtil
+
+            _sfx = StockCodeUtil.normalize(query.symbol)
+            _pfx = StockCodeUtil.to_prefix(query.symbol)
+            filters.append(Trade.symbol.in_([v for v in dict.fromkeys([_sfx, _pfx]) if v]))
         if getattr(query, "side", None):
             filters.append(Trade.side == query.side)
         if query.trading_mode:

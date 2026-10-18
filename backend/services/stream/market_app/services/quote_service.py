@@ -3,7 +3,6 @@
 import json
 import logging
 from datetime import datetime, timezone
-from typing import List, Optional
 
 from redis.asyncio import Redis
 from sqlalchemy import desc, select
@@ -48,16 +47,18 @@ class QuoteService:
         """获取实时行情"""
 
         # 1. 尝试从缓存获取
-        if use_cache and self.redis:
+        # 显式指定数据源时，缓存/最近落库记录可能来自其他源（日线等），不能复用。
+        if not source and use_cache and self.redis:
             cached = await self._get_cached_quote(symbol)
             if cached:
                 logger.debug(f"Quote cache hit for {symbol}")
                 return cached
 
         # 2. 优先读取 WS 推送链路最近落库的数据，减少 WS/REST 时点差异
-        recent = await self._get_recent_quote(symbol, max_age_seconds=5)
-        if recent:
-            return recent
+        if not source:
+            recent = await self._get_recent_quote(symbol, max_age_seconds=5)
+            if recent:
+                return recent
 
         # 3. 从数据源获取
         data_source = self._get_data_source(source, symbol=symbol)

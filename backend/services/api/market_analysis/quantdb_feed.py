@@ -276,9 +276,9 @@ def _sector_groups(category: str) -> dict[str, list[str]]:
     return groups
 
 
-def _normalize_prefix(symbol: str) -> str:
-    """后缀/前缀 -> 前缀格式（前端规范，如 SH600036）。"""
-    return StockCodeUtil.to_prefix(symbol)
+def _normalize_symbol(symbol: str) -> str:
+    """后缀/前缀 -> 后缀正典（全系统唯一通用格式，如 600036.SH）。"""
+    return StockCodeUtil.normalize(symbol)
 
 
 def _f(v: Any, default: float = 0.0) -> float:
@@ -387,15 +387,15 @@ def _stock_money_flow_impl(limit: int) -> list[dict[str, Any]]:
 
     # 只为入榜股票构建 30 日趋势与每日明细（原先为全市场 ~5000 只逐只构建，CPU/内存开销过大）
     top_syms = set(top["symbol"])
-    grp_by_prefix: dict[str, pd.DataFrame] = {}
+    grp_by_symbol: dict[str, pd.DataFrame] = {}
     for sym, grp in hist[hist["symbol"].isin(top_syms)].groupby("symbol"):
-        grp_by_prefix[_normalize_prefix(sym)] = grp.sort_values("dt")
+        grp_by_symbol[_normalize_symbol(sym)] = grp.sort_values("dt")
     trend_map = {
         sym: _day_flow_series(grp, days)
-        for sym, grp in grp_by_prefix.items()
+        for sym, grp in grp_by_symbol.items()
     }
     detail_map: dict[str, list[dict[str, Any]]] = {}
-    for sym, grp in grp_by_prefix.items():
+    for sym, grp in grp_by_symbol.items():
         rows: list[dict[str, Any]] = []
         for row in grp.itertuples(index=False):
             dt = str(row.dt)
@@ -411,10 +411,10 @@ def _stock_money_flow_impl(limit: int) -> list[dict[str, Any]]:
 
     items: list[dict[str, Any]] = []
     for row in top.itertuples(index=False):
-        sym_prefix = _normalize_prefix(row.symbol)
+        sym_norm = _normalize_symbol(row.symbol)
         net = _f(row.flow_net_amount)
         items.append({
-            "symbol": sym_prefix,
+            "symbol": sym_norm,
             "name": names.get(row.symbol, ""),
             "close_price": round(_f(row.close), 2),
             "pct_change": round(_f(row.pct_change), 2),
@@ -432,8 +432,8 @@ def _stock_money_flow_impl(limit: int) -> list[dict[str, Any]]:
             "large": int(_f(row.flow_large_net)),
             "medium": int(_f(row.flow_medium_net)),
             "small": int(_f(row.flow_small_net)),
-            "trend_30d": trend_map.get(sym_prefix, []),
-            "daily_details_30d": detail_map.get(sym_prefix, []),
+            "trend_30d": trend_map.get(sym_norm, []),
+            "daily_details_30d": detail_map.get(sym_norm, []),
         })
     return items
 
@@ -475,7 +475,7 @@ def _stock_money_flow_full_impl() -> list[dict[str, Any]]:
     for row in flow.itertuples(index=False):
         net = _f(row.flow_net_amount)
         items.append({
-            "symbol": _normalize_prefix(row.symbol),
+            "symbol": _normalize_symbol(row.symbol),
             "name": names.get(row.symbol, ""),
             "close_price": round(_f(row.close), 2),
             "pct_change": round(_f(row.pct_change), 2),
@@ -573,7 +573,7 @@ def _money_flow_period_impl(
                 prices_row = prices[prices["symbol"] == sym]
                 last_price = _f(prices_row["close"].iloc[-1]) if not prices_row.empty else 0.0
                 pct = _f(prices_row["pct_change"].iloc[-1]) if not prices_row.empty else 0.0
-                id_ = _normalize_prefix(sym)
+                id_ = _normalize_symbol(sym)
                 name = names.get(sym, "")
                 symbol_out = id_
                 trend = trend_by_sym.get(sym, [])
@@ -856,7 +856,7 @@ def get_indices_overview() -> list[dict[str, Any]]:
             pct = (change / prev_close * 100) if prev_close else 0.0
             turnover = float(sub["amount"].iloc[-1] or 0.0) / 10000.0  # 万元 -> 亿
             result.append({
-                "symbol": _normalize_prefix(symbol),
+                "symbol": _normalize_symbol(symbol),
                 "name": name,
                 "price": round(last_close, 2),
                 "change": round(change, 2),
@@ -900,7 +900,7 @@ def get_stocks_by_tag(tag: str, limit: int = 30) -> list[dict[str, Any]] | None:
     items: list[dict[str, Any]] = []
     for row in flow.sort_values("flow_net_amount", ascending=False).head(limit).itertuples(index=False):
         items.append({
-            "symbol": _normalize_prefix(row.symbol),
+            "symbol": _normalize_symbol(row.symbol),
             "name": names.get(row.symbol, ""),
             "close_price": round(_f(row.close), 2),
             "pct_change": round(_f(row.pct_change), 2),

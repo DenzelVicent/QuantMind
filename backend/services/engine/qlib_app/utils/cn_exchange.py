@@ -240,7 +240,10 @@ class CnExchange(Exchange):
 
         # 2. Transfer Fee (Buy & Sell, SH only)
         tf = 0.0
-        if stock_id.upper().startswith("SH"):
+        from backend.shared.stock_utils import StockCodeUtil as _SCU
+
+        _code, _mkt = _SCU.split_suffix(stock_id)
+        if (_mkt or _SCU.split_prefix(stock_id)[0]) == "SH":
             tf = max(trade_val * self.transfer_fee, self.min_transfer_fee)
 
         # 3. Stamp Duty (Sell only)
@@ -276,7 +279,10 @@ class CnExchange(Exchange):
         if cash <= 0:
             return 0.0
 
-        is_sh = stock_id.upper().startswith("SH")
+        from backend.shared.stock_utils import StockCodeUtil as _SCU
+
+        _code, _mkt = _SCU.split_suffix(stock_id)
+        is_sh = (_mkt or _SCU.split_prefix(stock_id)[0]) == "SH"
         rate_sum = self.commission
         if is_sh:
             rate_sum += self.transfer_fee

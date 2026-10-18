@@ -35,10 +35,10 @@ async def get_snapshots(symbols: list[str]) -> dict[str, Any]:
     items = []
     for quote in payload.get("items", []):
         row = dict(quote)
-        row["symbol"] = StockCodeUtil.to_prefix(str(row.get("symbol") or ""))
+        row["symbol"] = StockCodeUtil.normalize(str(row.get("symbol") or ""))
         items.append(row)
     return {
         "items": items,
-        "missing": [StockCodeUtil.to_prefix(str(s)) for s in payload.get("missing", [])],
+        "missing": [StockCodeUtil.normalize(str(s)) for s in payload.get("missing", [])],
         "source": "quantdb",
     }

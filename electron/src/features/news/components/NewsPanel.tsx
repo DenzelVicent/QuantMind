@@ -69,6 +69,7 @@ import {
 } from '../services/newsService';
 import '../styles/news-panel.css';
 import { sanitizeHtml } from '../../../utils/sanitizeHtml';
+import { normalizeSymbol, splitSuffixCode } from '../../../utils/portfolioUtils';
 
 const { Text, Title, Paragraph } = Typography;
 const { RangePicker } = DatePicker;
@@ -1183,7 +1184,7 @@ export const NewsPanel: React.FC = () => {
 function highlightText(text: string, enrichment: any): React.ReactNode {
   if (!text || !enrichment) return text;
   const words: string[] = [];
-  (enrichment.tickers || []).forEach((t: string) => words.push(t.split('.')[0]));  // 600519.SH → 600519
+  (enrichment.tickers || []).forEach((t: string) => words.push(splitSuffixCode(normalizeSymbol(t))[0] || t.split('.')[0]));  // 600519.SH → 600519
   (enrichment.event_tags || []).forEach((t: string) => words.push(t));
   (enrichment.key_terms || []).forEach((t: string) => words.push(t));
   (enrichment.industries || []).forEach((t: string) => words.push(t));

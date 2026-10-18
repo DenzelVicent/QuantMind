@@ -42,7 +42,7 @@ import {
 import type { UploadFile } from 'antd/es/upload/interface';
 import { StockPoolPickerModal } from '../../../components/backtest/StockPoolPickerModal';
 import { getStockPoolMembers, type StockPoolOption } from '../../../services/stockPoolOptionService';
-import { toSuffixCode } from '../../../utils/portfolioUtils';
+import { normalizeSymbol, toSuffixCode } from '../../../utils/portfolioUtils';
 
 const { Title, Text, Paragraph } = Typography;
 const { Search } = Input;
@@ -181,7 +181,7 @@ export const StockPoolSelector: React.FC<StockPoolSelectorProps> = ({
       return;
     }
 
-    const trimmedSymbol = symbol.trim().toUpperCase();
+    const trimmedSymbol = normalizeSymbol(symbol);
 
     if (selectedSymbols.includes(trimmedSymbol)) {
       message.warning(`股票 ${trimmedSymbol} 已在池中`);
@@ -248,7 +248,7 @@ export const StockPoolSelector: React.FC<StockPoolSelectorProps> = ({
     }
 
     const validSymbols = importedData
-      .map(s => s.trim().toUpperCase())
+      .map(s => normalizeSymbol(s))
       .filter(s => s.length > 0);
 
     const uniqueSymbols = [...new Set([...selectedSymbols, ...validSymbols])].slice(0, maxSymbols);
@@ -475,7 +475,7 @@ export const StockPoolSelector: React.FC<StockPoolSelectorProps> = ({
         <div style={{ maxHeight: 300, overflowY: 'auto' }}>
           <Space size={[8, 8]} wrap>
             {selectedSymbols.map(symbol => {
-              const stockInfo = COMMON_STOCKS.find(s => s.symbol === symbol);
+              const stockInfo = COMMON_STOCKS.find(s => normalizeSymbol(s.symbol) === normalizeSymbol(symbol));
               return (
                 <Tag
                   key={symbol}

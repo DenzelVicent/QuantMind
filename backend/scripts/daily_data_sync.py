@@ -69,6 +69,16 @@ INVESTMENT_DATA_DIR = Path(
 )
 # A 股 Qlib 目录统一走 qlib_paths 解析（固定目录 /data/qlib/cn_data 优先）
 from backend.shared.qlib_paths import resolve_qlib_provider_uri
+from backend.shared.stock_utils import StockCodeUtil
+
+
+def _pg_symbol(symbol: str) -> str:
+    """PG 落库统一后缀正典（输入可能为老 prefix 行键）。"""
+    try:
+        norm = StockCodeUtil.normalize(symbol)
+    except Exception:
+        norm = ""
+    return norm or str(symbol or "").strip().upper()
 
 QDB_QLIB_CACHE = Path(resolve_qlib_provider_uri("CN"))
 
@@ -357,7 +367,7 @@ def _read_investment_data(symbol: str, start: date, end: date) -> Optional[pd.Da
     if df.empty:
         return None
 
-    df["symbol"] = symbol.upper()
+    df["symbol"] = _pg_symbol(symbol)
     for c in ("open", "high", "low", "close", "volume", "amount", "adj_factor"):
         if c not in df.columns:
             df[c] = pd.NA
@@ -415,7 +425,7 @@ def _read_baostock(symbol: str, start: date, end: date) -> Optional[pd.DataFrame
         if not rows:
             return None
         df = pd.DataFrame(rows, columns=rs.fields)
-        df["symbol"] = symbol.upper()
+        df["symbol"] = _pg_symbol(symbol)
         df["trade_date"] = pd.to_datetime(df["date"]).dt.date
         for c in ("open", "high", "low", "close", "volume", "amount", "turn", "pctChg"):
             df[c] = pd.to_numeric(df[c], errors="coerce")
@@ -452,7 +462,7 @@ def _read_akshare(symbol: str, start: date, end: date) -> Optional[pd.DataFrame]
             }
             df = raw.rename(columns=rename).copy()
             df["trade_date"] = pd.to_datetime(df["trade_date"]).dt.date
-            df["symbol"] = symbol.upper()
+            df["symbol"] = _pg_symbol(symbol)
             for c in ("open", "high", "low", "close", "volume", "amount"):
                 if c in df.columns:
                     df[c] = pd.to_numeric(df[c], errors="coerce")
@@ -485,7 +495,7 @@ def _read_akshare(symbol: str, start: date, end: date) -> Optional[pd.DataFrame]
                 df = df[df["trade_date"] <= end]
             if df.empty:
                 return None
-            df["symbol"] = symbol.upper()
+            df["symbol"] = _pg_symbol(symbol)
             for c in ("open", "high", "low", "close", "volume", "amount"):
                 if c in df.columns:
                     df[c] = pd.to_numeric(df[c], errors="coerce")
@@ -519,7 +529,7 @@ def _read_eltdx(symbol: str) -> Optional[pd.DataFrame]:
             df["trade_date"] = pd.to_datetime(df["date"]).dt.date
         else:
             df["trade_date"] = pd.to_datetime(df.index).date
-        df["symbol"] = symbol.upper()
+        df["symbol"] = _pg_symbol(symbol)
         for c in ("open", "high", "low", "close", "volume", "amount"):
             if c in df.columns:
                 df[c] = pd.to_numeric(df[c], errors="coerce")
@@ -1086,7 +1096,8 @@ def run_sync(
                             qdb_df = hub.fetch_daily_kline(qdb_sym, need_start, qdb_latest_date, adjust="qfq")
                             if not qdb_df.empty:
                                 qdb_df = qdb_df.copy()
-                                qdb_df["symbol"] = sym
+                                # PG 落库统一后缀正典（sym 可能为老 prefix 行键）
+                                qdb_df["symbol"] = _pg_symbol(sym)
                                 qdb_df["source"] = "quantdb_parquet"
                                 qdb_df["adj_factor"] = 1.0
                                 for c in ("open", "high", "low", "close", "volume", "amount"):

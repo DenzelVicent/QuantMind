@@ -40,6 +40,23 @@ const taskLabel = (value?: string | null): string => {
     return value || '-';
 };
 
+const phaseLabel = (phase?: string | null): string => {
+    const s = String(phase || '').toUpperCase();
+    if (s === 'SELL') return '卖出窗口';
+    if (s === 'BUY') return '买入窗口';
+    if (s === 'ALL') return '调仓窗口';
+    return phase || '-';
+};
+
+/** ISO（2026-10-11T14:50:00+08:00）→ MM-DD HH:mm，解析失败原样返回 */
+const formatTriggerAt = (iso?: string | null): string => {
+    if (!iso) return '-';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
 /**
  * L2 运行层：左列运行策略 + 策略参数，右列下个交易日计划 + 任务汇报。
  * 交易记录已下沉到独立全宽 section，本层只保留状态与计划。
@@ -69,8 +86,9 @@ const RuntimeLayer: React.FC<RuntimeLayerProps> = ({
     // 有最后一次托管任务时也展示运行卡（标注已停止），避免停止后左侧空白
     const showIdleGuide = (runState === 'idle' || runState === 'stopped') && !status?.strategy && !status?.latest_hosted_task;
 
-    // 右列数据源：最新托管任务（后端已聚合）
+    // 右列数据源：最新托管任务（后端已聚合）+ 下次托管窗口（今日无任务时展示未来排期）
     const task = status?.latest_hosted_task || null;
+    const nextTrigger = status?.next_trigger || null;
     const result = (task?.result_json || {}) as Record<string, unknown>;
     const request = (task?.request_json || {}) as Record<string, unknown>;
     const preview = (result?.preview_summary || {}) as Record<string, unknown>;
@@ -148,8 +166,19 @@ const RuntimeLayer: React.FC<RuntimeLayerProps> = ({
                         )}
                         <div className="lg:col-span-2 rounded-2xl border border-slate-200 bg-slate-50/40 p-4">
                             <div className="text-sm font-black text-slate-700 mb-2.5">下个交易日计划</div>
-                            {!task ? (
+                            {!task && !nextTrigger ? (
                                 <div className="text-sm text-slate-400 py-3 text-center">今日暂未触发自动化托管任务</div>
+                            ) : !task && nextTrigger ? (
+                                <div className="space-y-2.5 text-sm font-bold text-slate-700">
+                                    <div className="flex justify-between gap-3 items-center bg-white rounded-xl border border-slate-100 px-3.5 py-2.5">
+                                        <span className="text-slate-400 font-semibold text-xs">下次调仓</span>
+                                        <span className="text-sm font-black text-slate-800">{nextTrigger.trade_date || '-'}</span>
+                                    </div>
+                                    <div className="flex justify-between gap-3 items-center bg-white rounded-xl border border-slate-100 px-3.5 py-2.5">
+                                        <span className="text-slate-400 font-semibold text-xs">触发窗口</span>
+                                        <span className="text-sm font-black text-slate-800">{phaseLabel(nextTrigger.phase)} {formatTriggerAt(nextTrigger.target_at)}</span>
+                                    </div>
+                                </div>
                             ) : (
                                 <div className="space-y-2.5 text-sm font-bold text-slate-700">
                                     <div className="flex justify-between gap-3 items-center bg-white rounded-xl border border-slate-100 px-3.5 py-2.5">
@@ -170,6 +199,14 @@ const RuntimeLayer: React.FC<RuntimeLayerProps> = ({
                                         <span className="text-slate-400 font-semibold text-xs">信号批次</span>
                                         <span className="font-mono text-xs font-bold text-slate-800 truncate" title={task.run_id}>{task.prediction_trade_date || '-'}</span>
                                     </div>
+                                    {nextTrigger && (
+                                        <div className="flex justify-between gap-3 items-center bg-white rounded-xl border border-indigo-100 px-3.5 py-2.5">
+                                            <span className="text-indigo-400 font-semibold text-xs">下次窗口</span>
+                                            <span className="text-xs font-black text-indigo-700 truncate text-right" title={`${nextTrigger.target_at || ''} ~ ${nextTrigger.window_end_at || ''}`}>
+                                                {nextTrigger.trade_date} {phaseLabel(nextTrigger.phase)} {formatTriggerAt(nextTrigger.target_at)}
+                                            </span>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -194,7 +231,7 @@ const RuntimeLayer: React.FC<RuntimeLayerProps> = ({
                                 )}
                             </div>
                         )}
-                        <div className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white p-4">
+                        <div className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white p-4 flex flex-col">
                             <div className="flex items-center justify-between mb-2.5">
                                 <span className="text-sm font-black text-slate-700">任务汇报</span>
                                 {task && (
@@ -203,7 +240,7 @@ const RuntimeLayer: React.FC<RuntimeLayerProps> = ({
                                     </span>
                                 )}
                             </div>
-                            <div className="grid grid-cols-3 gap-2.5 text-center">
+                            <div className="grid grid-cols-3 gap-2.5 text-center flex-1 content-center">
                                 <div className="rounded-xl bg-emerald-50 border border-emerald-100 py-3 px-2">
                                     <div className="text-xs font-bold text-emerald-600/80 mb-0.5">成功</div>
                                     <div className="text-xl font-black text-emerald-700">{success}</div>

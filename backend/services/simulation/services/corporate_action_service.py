@@ -591,8 +591,8 @@ class SimulationCorporateActionService:
 
     @staticmethod
     async def _load_latest_price(session, symbol: str) -> float:
+        suffix_symbol = StockCodeUtil.to_suffix(symbol)
         prefix_symbol = StockCodeUtil.to_prefix(symbol)
-        suffix_symbol = StockCodeUtil.to_suffix(prefix_symbol)
         query = text(
             """
             SELECT close, adj_factor
@@ -602,7 +602,8 @@ class SimulationCorporateActionService:
             LIMIT 1
             """
         )
-        for candidate in (prefix_symbol, suffix_symbol):
+        # 后缀正典优先，老前缀行兜底（存量表两种口径并存）
+        for candidate in (suffix_symbol, prefix_symbol):
             result = await session.execute(query, {"symbol": candidate})
             row = result.fetchone()
             if not row:

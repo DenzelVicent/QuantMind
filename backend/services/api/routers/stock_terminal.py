@@ -87,28 +87,28 @@ def reset_terminal_caches() -> None:
 
 def _classify_board(symbol: str) -> str:
     """按代码归类市场板块：SH 主板/科创板、SZ 主板/创业板、BJ 北交所。"""
-    code = symbol.split(".")[0]
-    if symbol.endswith(".SH"):
+    from backend.shared.stock_utils import StockCodeUtil
+
+    norm = StockCodeUtil.normalize(symbol)
+    code, market = StockCodeUtil.split_suffix(norm)
+    if market == "SH":
         if code.startswith("68"):
             return "科创板"
         return "沪市主板"
-    if symbol.endswith(".SZ"):
+    if market == "SZ":
         if code.startswith("30"):
             return "创业板"
         return "深市主板"
-    if symbol.endswith(".BJ"):
+    if market == "BJ":
         return "北交所"
     return "其他"
 
 
 def _exchange_of(symbol: str) -> str:
-    if symbol.endswith(".SH"):
-        return "SH"
-    if symbol.endswith(".SZ"):
-        return "SZ"
-    if symbol.endswith(".BJ"):
-        return "BJ"
-    return ""
+    from backend.shared.stock_utils import StockCodeUtil
+
+    _, market = StockCodeUtil.split_suffix(StockCodeUtil.normalize(symbol))
+    return market
 
 
 def _latest_partition(base: Path) -> Path | None:
@@ -702,46 +702,64 @@ async def stock_signal_overlay(
     days: int = Query(250, ge=30, le=1000),
     current_user: dict = Depends(get_current_user),
 ):
-    """推理分数叠加：engine_signal_scores 按 model_version 分组返回。
+    """推理分数叠加：按真实模型分组，历史模型未知时按运行批次隔离。
 
-    同表同口径与推理中心一致。返回 {dates, series:{model_version: [{fusion, side}]}}
+    返回 series，保留信号生效日、数据日及运行批次，同日可有多条记录。
     """
     _ = current_user
     sym = symbol.upper().strip()
     if not _SYMBOL_RE.match(sym):
         raise HTTPException(status_code=400, detail=f"非法代码 {sym}")
-    prefix = f"{sym.split('.')[1]}{sym.split('.')[0]}"  # 600519.SH -> SH600519
+    # 输入仅接受后缀正典（_SYMBOL_RE）；engine_signal_scores.symbol 历史存在
+    # 纯数字（script_runner 主写链路）/前缀（realtime_contract 原样透传）/后缀
+    # 三种写法，三候选兼容读，返回口径保持后缀。
+    code, market = sym.split(".")
+    candidates = (sym, code, f"{market}{code}")
 
     from datetime import timedelta as _td
 
     async with get_session() as session:
+        from sqlalchemy import bindparam as _bindparam
         from sqlalchemy import text as _text
 
         start = _date.today() - _timedelta(days=days * 2)
         rows = (
             await session.execute(
                 _text(
-                    "SELECT trade_date, fusion_score, signal_side, model_version "
-                    "FROM engine_signal_scores "
-                    "WHERE tenant_id = :tid AND symbol = :s AND trade_date >= :start "
-                    "ORDER BY trade_date"
-                ),
-                {"tid": "default", "s": prefix, "start": start},
+                    "SELECT s.trade_date, s.fusion_score, s.signal_side, s.model_version, "
+                    "s.run_id, r.model_id, r.data_trade_date, r.prediction_trade_date "
+                    "FROM engine_signal_scores s "
+                    "LEFT JOIN qm_model_inference_runs r ON r.run_id = s.run_id "
+                    "AND r.tenant_id = s.tenant_id AND r.user_id = s.user_id "
+                    "WHERE s.tenant_id = :tid AND s.symbol IN :s AND s.trade_date >= :start "
+                    "ORDER BY s.trade_date, s.created_at, s.id"
+                ).bindparams(_bindparam("s", expanding=True)),
+                {"tid": "default", "s": list(candidates), "start": start},
             )
         ).fetchall()
 
     grouped: dict[str, list[dict]] = {}
     for r in rows:
-        mv = str(r[3] or "default")
+        # inference_script 是执行方式，不是模型身份；无法关联时保留批次隔离。
+        mv = str(r[5] or r[4])
         grouped.setdefault(mv, []).append({
             "date": str(r[0])[:10],
             "fusion": float(r[1]) if r[1] is not None else None,
             "side": str(r[2] or "HOLD"),
+            "run_id": str(r[4]),
+            "model_id": str(r[5]) if r[5] else None,
+            "model_version": str(r[3]) if r[3] else None,
+            "data_trade_date": str(r[6])[:10] if r[6] else None,
+            "prediction_trade_date": str(r[7])[:10] if r[7] else None,
         })
-    # 只保留最近 days 个交易日
+    # 每组保留最近 days 条记录；同一天可有多个运行批次。
     for mv in grouped:
         grouped[mv] = grouped[mv][-days:]
-    return {"success": True, "data": {"series": grouped}}
+    return {"success": True, "data": {
+        "series": grouped,
+        "date_semantics": "date 为信号生效交易日，data_trade_date 为数据交易日；休市期间可提前生成节后预测。",
+        "series_semantics": "按模型分组，模型未知时按运行批次隔离；同日多条不是连续每日评分。",
+    }}
 
 
 @router.get("/chart-backtest")

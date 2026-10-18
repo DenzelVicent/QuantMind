@@ -930,7 +930,7 @@ class CrashBuyDipBuilder(StrategyBuilder):
                 "crash_threshold_points": 100,
                 "crash_threshold_pct": 0.025,
                 "max_wait_days": 3,
-                "benchmark": request.benchmark or "SH000300",
+                "benchmark": request.benchmark or "000300.SH",
                 "account_stop_loss": request.strategy_params.account_stop_loss,
                 "max_leverage": request.strategy_params.max_leverage,
                 **market_state_kwargs,

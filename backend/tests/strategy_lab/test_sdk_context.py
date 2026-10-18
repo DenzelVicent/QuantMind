@@ -17,7 +17,7 @@ from backend.services.engine.strategy_lab.sdk.position import Position
 # ---------------------------------------------------------------------------
 def test_defaults():
     c = Context()
-    assert c.benchmark == "SH000300"
+    assert c.benchmark == "000300.SH"
     assert c.commission == 0.0003
     assert c.slippage == 0.0005
     assert c.execution_model == "a_share_strict"

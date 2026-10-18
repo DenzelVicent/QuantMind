@@ -403,6 +403,13 @@ async def test_run_cycle_passes_signal_run_id_to_engine(monkeypatch):
 
     monkeypatch.setattr(engine_module, "simulation_engine", _FakeEngine())
 
+    synced: list[dict[str, Any]] = []
+
+    async def _capture(**kwargs):
+        synced.append(kwargs)
+
+    monkeypatch.setattr(scheduler, "_sync_hosted_sim_task", _capture)
+
     result = await scheduler.run_simulation_cycle_for_active(
         tenant_id="default",
         user_id="10000001",
@@ -412,4 +419,7 @@ async def test_run_cycle_passes_signal_run_id_to_engine(monkeypatch):
 
     assert result["status"] == "succeeded"
     assert calls["kwargs"]["signal_run_id"] == "run_bound_1"
-
+    # 托管模拟任务必须登记进实盘日志链路：开始（result=None）+ 结束各一次
+    assert [c["task_id"] for c in synced] == ["task_1", "task_1"]
+    assert synced[0].get("result") is None
+    assert synced[1]["result"]["status"] == "succeeded"

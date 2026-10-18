@@ -2,7 +2,7 @@
 
 两套推理数据的一致性维护：
 - A 套：engine_signal_scores（单日批次，symbol 纯数字，trade_date=T+1 信号生效日）
-- B 套：模型目录 pred.parquet（历史分数序列，symbol SH/SZ 前缀式，trade_date=T 数据日）
+- B 套：模型目录 pred.parquet（历史分数序列，symbol 后缀式 600036.SH，trade_date=T 数据日）
 
 coverage 缺口判定与个股分数曲线均读 B 套；每日自动推理与一键补全成功后
 须把真实分数合并回 B 套，否则 B 套停在训练日，缺口与曲线永不更新。
@@ -21,7 +21,7 @@ def merge_signals_into_pred(
 ) -> int:
     """把 runner 真实推理分数合并进 pred.parquet。
 
-    - symbol 归一为 SH/SZ 前缀式（pred.parquet 约定）
+    - symbol 归一为后缀式（pred.parquet 约定：600036.SH）
     - 按 (symbol, trade_date) 去重，新分数覆盖旧值
     - 临时文件 + 原子替换，避免并发读到半写文件
     - 默认不凭单日数据创建残缺历史（create_if_missing=False 时文件
@@ -45,8 +45,8 @@ def merge_signals_into_pred(
     rows = []
     for d, signals in signals_by_date:
         for s in signals or []:
-            sym = StockCodeUtil.to_prefix(str(s.get("symbol", "")))
-            if not re.match(r"^(SH|SZ|BJ)\d{6}$", sym):
+            sym = StockCodeUtil.normalize(str(s.get("symbol", "")))
+            if not re.match(r"^\d{6}\.(SH|SZ|BJ)$", sym):
                 continue
             try:
                 score = float(s.get("score"))
@@ -112,13 +112,18 @@ def _refresh_pred_daily(parquet_file: Path, new_df) -> None:
         rows = []
         for _, r in grp.iterrows():
             sym = str(r.get("symbol", ""))
-            if not re.match(r"^(SH|SZ|BJ)\d{6}$", sym):
+            if not re.match(r"^\d{6}\.(SH|SZ|BJ)$", sym):
                 continue
-            if sym.startswith("SH000") or sym.startswith("SZ399"):
+            code, _, market = sym.partition(".")
+            if market == "SH" and code.startswith("000"):
                 continue
-            if sym.startswith("SH900") or sym.startswith("SZ200"):
+            if market == "SZ" and code.startswith("399"):
                 continue
-            if sym.startswith("BJ"):
+            if market == "SH" and code.startswith("900"):
+                continue
+            if market == "SZ" and code.startswith("200"):
+                continue
+            if market == "BJ":
                 continue
             pred_val = r.get("pred")
             if pred_val is None or (isinstance(pred_val, float) and pd.isna(pred_val)):

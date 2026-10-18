@@ -410,7 +410,7 @@ export const BacktestPage: React.FC = () => {
             </div>
             <div className="text-sm">
               <span className="text-muted-foreground">基准：</span>
-              <span className="font-medium ml-1">SH000300（沪深300指数）</span>
+              <span className="font-medium ml-1">000300.SH（沪深300指数）</span>
             </div>
             {/* 数据源切换 */}
             <div className="text-sm">

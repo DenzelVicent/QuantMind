@@ -237,7 +237,7 @@ class InferenceService:
                 raise ValueError(f"feature dim mismatch: got {seq_arr.shape[2]}, expect {len(feature_columns)}")
             raw_symbols = data.get("symbols") or []
             if isinstance(raw_symbols, list) and len(raw_symbols) == seq_arr.shape[0]:
-                symbols = [StockCodeUtil.to_prefix(str(s)) for s in raw_symbols]
+                symbols = [StockCodeUtil.normalize(str(s)) for s in raw_symbols]
             else:
                 symbols = [f"SEQ_{i}" for i in range(seq_arr.shape[0])]
         else:

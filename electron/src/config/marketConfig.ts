@@ -34,7 +34,7 @@ export const MARKET_CONFIGS: Record<AppMarket, MarketConfig> = {
     // 统一固定缓存目录（与后端 qlib_paths 解析一致）；后端对历史值会做归一化。
     qlibProviderUri: '/data/qlib/cn_data',
     defaultUniverse: 'csi300',
-    benchmark: 'SH000300',
+    benchmark: '000300.SH',
     benchmarkName: '沪深300',
     currency: 'CNY',
     calendar: 'SSE',

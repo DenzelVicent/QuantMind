@@ -232,14 +232,14 @@ class AkShareProvider:
         return symbol
 
     def _symbol_to_prefix(self, symbol: str) -> str:
-        """纯数字代码 -> 前缀格式 (sh600519)"""
+        """纯数字代码 -> 前缀格式 (sh600519，小写；委托中枢 to_prefix 后转小写）"""
+        from backend.shared.stock_utils import StockCodeUtil
+
+        prefix = StockCodeUtil.to_prefix(symbol)
+        if len(prefix) == 8 and prefix[:2] in ("SH", "SZ", "BJ") and prefix[2:].isdigit():
+            return prefix.lower()
+        # 非标准输入沿用旧回退（默认 sh），避免改变业务兜底
         code = self._normalize_symbol(symbol)
-        if code.startswith("6") or code.startswith("688") or code.startswith("9"):
-            return f"sh{code}"
-        elif code.startswith(("0", "3", "2")):
-            return f"sz{code}"
-        elif code.startswith(("4", "8")):
-            return f"bj{code}"
         return f"sh{code}"
 
     def _normalize_df(self, df: pd.DataFrame) -> pd.DataFrame:

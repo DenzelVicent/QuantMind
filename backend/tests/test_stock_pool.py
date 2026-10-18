@@ -804,8 +804,9 @@ class TestPoolSignalFilter:
 
     def test_intersect_symbols(self):
         assert filter_intersect(["SH600036", "SZ000001"], ["600036.SH"]) == ["SH600036"]
-        assert filter_intersect(["SH600036"], None) == ["SH600036"]
-        assert filter_intersect(None, ["600036.SH"]) == ["SH600036"]
+        # 单边为 None 时归一为后缀正典（双口径输入均可互查）
+        assert filter_intersect(["SH600036"], None) == ["600036.SH"]
+        assert filter_intersect(None, ["600036.SH"]) == ["600036.SH"]
         assert filter_intersect(["SH600036"], ["SZ000001"]) == []
 
 
@@ -1056,7 +1057,7 @@ class TestP5StrategyPool:
             "list:SH600036,SH600000",
             strict=True,
         )
-        assert out.symbols == ["SH600036", "SH600000"]
+        assert out.symbols == ["600036.SH", "600000.SH"]
         assert out.dropped == 1
 
     def test_apply_pool_empty_strict_fails(self):
@@ -1075,14 +1076,14 @@ class TestP5StrategyPool:
         from backend.shared.stock_pool.strategy import apply_pool_to_universe
 
         out = apply_pool_to_universe(["SH600036"], "list:", strict=False)
-        assert out.symbols == ["SH600036"]
+        assert out.symbols == ["600036.SH"]
         assert out.warnings
 
     def test_apply_pool_all_passthrough(self):
         from backend.shared.stock_pool.strategy import apply_pool_to_universe
 
         out = apply_pool_to_universe(["SH600036"], "all", strict=True)
-        assert out.symbols == ["SH600036"]
+        assert out.symbols == ["600036.SH"]
 
     def test_backtest_loop_applies_pool(self):
         src = self._src("services/engine/strategy_lab/engine/loop.py")

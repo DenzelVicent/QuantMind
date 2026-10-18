@@ -90,7 +90,6 @@ QuantMind 单机 Docker Compose 部署（`docker-compose.yml`），11+ 服务：
 | `quantmind-huntly`       | Huntly        | 8090      | RSS 新闻存储/阅读器                |
 | `quantmind-rsshub`       | RSSHub        | 1200      | 通用网站订阅                      |
 | `qwenpaw`                | QwenPaw       | 8088      | AI 代理（可选）；**默认仅绑 127.0.0.1**，外部直连需 `QWENPAW_BIND=0.0.0.0` |
-| `ib-gateway`             | IB Gateway    | 4001/4002 | 盈透网关（实盘/模拟，.env 配 IB_ACCOUNT/IB_PASSWORD） |
 
 > **QwenPaw 外部访问**：`qwenpaw` 端口默认只绑 `127.0.0.1`（安全收敛口径）。前端 QuantBot 页面用 iframe 直连
 > `http://<API网关主机>:8088/`，若在远端浏览器/Electron 打开需要在 `.env` 增加 `QWENPAW_BIND=0.0.0.0`，
@@ -389,7 +388,7 @@ pip install torch==2.9.1 -i https://mirrors.aliyun.com/pypi/simple/
 
 # 4. 其余依赖（与 Dockerfile.oss 同清单，requirements/*.txt + quantdb-sdk + patch_qlib）
 pip install -r requirements.txt -r requirements/production.txt -r requirements/ai.txt
-pip install "quantdb-sdk==0.3.3" && python docker/patch_qlib.py
+pip install "quantdb-sdk==0.4.4" && python docker/patch_qlib.py
 
 # 5. PG 初始化（实例内无 systemd，用 pg_ctlcluster 拉起）
 pg_ctlcluster 14 main start
@@ -553,7 +552,7 @@ docker exec quantmind-db pg_isready -U quantmind
 | **容器起不来**               | 端口冲突 / 配置        | `docker compose logs quantmind` 看日志                      |
 | **数据库连接失败**             | PG 未就绪           | `docker exec quantmind-db pg_isready -U quantmind`       |
 | **前端 502**              | Nginx/PM2        | `nginx -t` + `pm2 status` + `pm2 restart quantmind-web`  |
-| **quantdb-sdk 安装失败**    | 版本兼容             | Dockerfile 用 `quantdb-sdk==0.3.3`，换源重装                   |
+| **quantdb-sdk 安装失败**    | 版本兼容             | Dockerfile 用 `quantdb-sdk==0.4.4`，换源重装                   |
 | **北向/南向无数据**            | 未同步              | 跑 `quantdb_north_sync` / `quanthk_south_sync`            |
 | **GPU 训练不生效**           | 未配 AutoDL 节点     | `training-nodes/config` 配置后选 node\_id                    |
 | **AutoDL 节点连不上**        | SSH 配置错          | `training-nodes/test` 诊断 SSH/docker                      |

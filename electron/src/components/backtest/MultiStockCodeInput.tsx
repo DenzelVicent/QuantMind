@@ -6,6 +6,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Search, X, Plus, Info } from 'lucide-react';
 import { stockListService, Stock } from '../../services/stockListService';
 import { SERVICE_ENDPOINTS } from '../../config/services';
+import { splitPrefixCode, toSuffixCode } from '../../utils/portfolioUtils';
 
 interface StockOption extends Stock {
   price?: number;
@@ -67,10 +68,10 @@ export const MultiStockCodeInput: React.FC<Props> = ({
 
       return rawList
         .map((item: any): StockOption | null => {
-          const symbol = String(item?.code || item?.symbol || '').trim();
+          const symbol = toSuffixCode(String(item?.code || item?.symbol || '').trim());
           const name = String(item?.name || '').trim();
           if (!symbol || !name) return null;
-          const [code = symbol, market = ''] = symbol.split('.');
+          const [market, code] = splitPrefixCode(symbol);
           return {
             symbol,
             code,

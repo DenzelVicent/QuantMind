@@ -479,13 +479,13 @@ async def _load_close_price(session, symbol: str) -> float:
     from sqlalchemy import text
     from backend.shared.stock_utils import StockCodeUtil
 
-    prefix = StockCodeUtil.to_prefix(symbol)
-    suffix = StockCodeUtil.to_suffix(prefix)
+    suffix = StockCodeUtil.normalize(symbol)
+    prefix = StockCodeUtil.to_prefix(suffix)
     query = text(
         "SELECT close, adj_factor FROM stock_daily_latest "
         "WHERE symbol = :symbol ORDER BY trade_date DESC LIMIT 1"
     )
-    for candidate in (prefix, suffix):
+    for candidate in (suffix, prefix):
         result = await session.execute(query, {"symbol": candidate})
         row = result.fetchone()
         if not row:

@@ -150,7 +150,7 @@ def translate_sdk_to_template(code: str, *, run_id: str | None = None) -> Transl
         "start": start,
         "end": end,
         "cash": cash,
-        "benchmark": cfg_dict.get("benchmark", "SH000300"),
+        "benchmark": cfg_dict.get("benchmark", "000300.SH"),
         "commission": cfg_dict.get("commission", 0.0003),
         "slippage": cfg_dict.get("slippage", 0.0005),
         "max_positions": cfg_dict.get("max_positions", 10),

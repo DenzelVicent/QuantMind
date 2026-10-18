@@ -74,12 +74,12 @@ services/stream/
 ```
 外部行情快照推送（建议每 30 秒）
         ↓
-行情专用 Redis  market:snapshot:{symbol}
+行情专用 Redis  market:snapshot:{symbol}   ← 上游统一供给（本机只读）
   { Now, PreClose, Open, High, Low, Volume, Amount, timestamp }
         ↓  RemoteRedisDataSource
 QuotePusher（ws_core）
-  ├─→ Redis ZSET market:series:{symbol}（时序序列）
-  ├─→ PostgreSQL quotes（落库）
+  ├─→ PostgreSQL quotes（本地落库）
+  ├─→ Redis ZSET market:series:{symbol}（仅 STREAM_WRITE_SERIES=true 时回写）
   └─→ manager.publish("stock.{code}") → WebSocket /ws
         ↓
 QuoteService（REST）
@@ -87,6 +87,10 @@ QuoteService（REST）
         ↓
 /api/v1/quotes/{symbol}
 ```
+
+> 远端行情 Redis 由上游统一提供，OSS 默认**只读**：不回写 `market:series`、
+> 不回写 `market:stream:persist_stats`（两个回写各由 `STREAM_WRITE_SERIES` /
+> `STREAM_PERSIST_STATS` 显式开启，默认 `false`）。本地 `quotes` 落库不受影响。
 
 ---
 

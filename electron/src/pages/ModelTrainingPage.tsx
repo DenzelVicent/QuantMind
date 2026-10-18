@@ -25,6 +25,7 @@ import { TrainingTargetConfig } from './training/TrainingTargetConfig';
 import { ParameterConfig } from './training/ParameterConfig';
 import { TrainingConsole } from './training/TrainingConsole';
 import { TrainingResultView } from './training/TrainingResultView';
+import { TrainingDataSourceCards } from './training/TrainingDataSourceCards';
 
 const { Title } = Typography;
 const NODE_STORAGE_KEY = 'qm.training.selectedNode';
@@ -963,29 +964,21 @@ export const ModelTrainingPage: React.FC = () => {
                     </div>
                     {isQuantDBMarket(currentMarket) && (
                       <div className="flex items-center gap-2 text-xs min-w-0">
-                      <span className="font-medium text-slate-600 shrink-0">数据源</span>
-                      <Select
-                        value={factorSource}
-                        onChange={setFactorSource}
-                        className="min-w-52"
-                        loading={featureCatalogLoading && factorSources.length === 0}
-                        options={factorSources.map((item) => ({
-                          value: item.id,
-                          label: item.default ? `${item.name}（默认）` : item.name,
-                          disabled: !item.ready,
-                        }))}
-                      />
-                      {factorCatalogVersion
-                        ? <Tag color="blue">目录版本 {factorCatalogVersion}</Tag>
-                        : <Tooltip title="前往后台「训练服务 → 数据发布」执行『字段发现』数据扫描">
-                            <Tag
-                              color={dataCoverage?.ready ? 'default' : 'warning'}
-                              className="cursor-pointer hover:opacity-80"
-                              onClick={() => navigate('/admin/training-datasets')}
-                            >
-                              {factorSources.find((item) => item.id === factorSource)?.reason || '尚未发布因子目录'} →
-                            </Tag>
-                          </Tooltip>}
+                        <span className="font-medium text-slate-600 shrink-0">数据源</span>
+                        <span className="font-bold text-slate-800">
+                          {factorSources.find((item) => item.id === factorSource)?.name || '—'}
+                        </span>
+                        {factorCatalogVersion
+                          ? <Tag color="blue">目录版本 {factorCatalogVersion.slice(0, 8)}</Tag>
+                          : <Tooltip title="前往后台「训练服务 → 数据发布」执行『字段发现』数据扫描">
+                              <Tag
+                                color={dataCoverage?.ready ? 'default' : 'warning'}
+                                className="cursor-pointer hover:opacity-80"
+                                onClick={() => navigate('/admin/training-datasets')}
+                              >
+                                {factorSources.find((item) => item.id === factorSource)?.reason || '尚未发布因子目录'} →
+                              </Tag>
+                            </Tooltip>}
                       </div>
                     )}
                     <Space className="ml-auto shrink-0">
@@ -1032,6 +1025,18 @@ export const ModelTrainingPage: React.FC = () => {
                     </Space>
                   </div>
                 </Card>
+
+                {isQuantDBMarket(currentMarket) && (
+                  <Card className="rounded-2xl border-gray-200 shadow-sm" styles={{ body: { padding: '14px 20px' } }}>
+                    <TrainingDataSourceCards
+                      sources={factorSources}
+                      value={factorSource}
+                      loading={featureCatalogLoading}
+                      onChange={setFactorSource}
+                      onManage={() => navigate('/admin/training-datasets')}
+                    />
+                  </Card>
+                )}
 
                 <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
                     <MetricCard label="市场" value={getMarketConfig(currentMarket).label} centered />

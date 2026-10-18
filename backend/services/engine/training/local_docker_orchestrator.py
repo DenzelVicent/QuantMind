@@ -1374,3 +1374,104 @@ class LocalDockerOrchestrator(TrainingOrchestrator):
                     container_id=container_id[:12],
                 )
         await _try_resume()
+
+
+# ── 启动兜底清理：删除终态残留的 qm-train-* 容器 ──────────────────────────────
+# 背景：正常路径（_poll_container 退出后 remove + complete 回调再删）覆盖了
+# 在线时的退出，但 API 重启会杀掉轮询协程，Exited 容器就永久残留（如 Exit 137）。
+# 本函数只在 API lifespan 启动时跑一次，且只删满足以下两条的容器：
+#   1. docker 状态为 exited / dead / created（绝不碰 running/paused/restarting）；
+#   2. DB 中对应 run 不存在（孤儿）或 status 已终态（completed/failed/cancelled）。
+# running / waiting_callback 的 Exited 容器（如刚退出等回调）一律跳过，
+# 交给正常轮询处理，避免与 _poll_container 竞争。
+_TERMINAL_CLEANUP_STATUSES = frozenset({"completed", "failed", "cancelled"})
+
+
+async def cleanup_stale_training_containers() -> dict:
+    """API 启动时清理终态残留训练容器，永不抛异常（lifespan 必须非致命）。"""
+    stats = {"scanned": 0, "removed": 0, "skipped": 0, "errors": 0}
+    if docker is None or DockerClient is None:
+        return {**stats, "disabled": "docker-sdk-missing"}
+    try:
+        client = DockerClient.from_env()
+    except Exception as exc:
+        logger.warning("stale training cleanup: docker client failed: %s", exc)
+        return {**stats, "disabled": str(exc)[:120]}
+    try:
+        containers = await asyncio.to_thread(
+            client.containers.list, all=True, filters={"name": "qm-train-"}
+        )
+    except Exception:
+        try:
+            all_containers = await asyncio.to_thread(client.containers.list, all=True)
+            containers = [
+                c
+                for c in all_containers
+                if str(getattr(c, "name", "") or "").lstrip("/").startswith("qm-train-")
+            ]
+        except Exception as exc:
+            logger.warning("stale training cleanup: list failed: %s", exc)
+            stats["errors"] += 1
+            return stats
+    try:
+        from backend.services.api.routers.admin.db import TrainingJobRecord
+        from backend.shared.database_manager_v2 import get_session
+    except Exception as exc:
+        logger.warning("stale training cleanup: db import failed: %s", exc)
+        stats["errors"] += 1
+        return stats
+    for c in containers or []:
+        name = str(getattr(c, "name", "") or "").lstrip("/")
+        if not name.startswith("qm-train-"):
+            continue
+        stats["scanned"] += 1
+        try:
+            state = str(getattr(c, "status", "") or "").lower()
+        except Exception:
+            state = ""
+        if state.startswith(("running", "paused", "restarting", "removing")):
+            stats["skipped"] += 1
+            continue
+        run_id = name[len("qm-train-") :]
+        if not run_id:
+            stats["skipped"] += 1
+            continue
+        try:
+            async with get_session(read_only=True) as db:
+                record = await db.get(TrainingJobRecord, run_id)
+                db_status = str(getattr(record, "status", "") or "") if record else ""
+        except Exception as exc:
+            logger.warning("[%s] stale cleanup: db read failed: %s", run_id, exc)
+            stats["errors"] += 1
+            continue
+        # DB 仍 running/waiting_callback/pending/provisioning → 交给轮询，不删
+        if record is not None and db_status not in _TERMINAL_CLEANUP_STATUSES:
+            stats["skipped"] += 1
+            continue
+        try:
+            await asyncio.to_thread(c.remove, force=True, v=True)
+            stats["removed"] += 1
+            logger.info(
+                "[%s] stale cleanup removed %s (db=%s)",
+                run_id,
+                name,
+                db_status or "orphan",
+            )
+        except Exception:
+            try:
+                await asyncio.to_thread(c.remove, force=True)
+                stats["removed"] += 1
+                logger.info("[%s] stale cleanup removed %s (fallback)", run_id, name)
+            except Exception as exc:
+                logger.warning(
+                    "[%s] stale cleanup remove %s failed: %s", run_id, name, exc
+                )
+                stats["errors"] += 1
+    logger.info(
+        "stale training cleanup done: scanned=%d removed=%d skipped=%d errors=%d",
+        stats["scanned"],
+        stats["removed"],
+        stats["skipped"],
+        stats["errors"],
+    )
+    return stats

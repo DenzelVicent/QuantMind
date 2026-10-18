@@ -208,17 +208,33 @@ class MarketDataToRedis:
             print(f"✗ 获取 {stock_code} 快照失败: {e}")
             return None
 
+    def _suffix_of(self, code_part: str, market: str) -> str:
+        """裸码+市场 -> 后缀正典（号段与 StockCodeUtil.to_suffix 一致）。
+
+        SH：60/68/90 开头；SZ：00/30/20 开头；BJ：43/83/87/88/92 开头。
+        本脚本不 import backend（TDX Windows 运行环境），号段硬编码镜像，
+        漂移时以 backend/shared/stock_utils.py 为准。
+        """
+        code = str(code_part).strip().upper()
+        market = str(market or "").strip().upper()
+        if market not in ("SH", "SZ", "BJ"):
+            if code.startswith(("60", "68", "90")):
+                market = "SH"
+            elif code.startswith(("00", "30", "20")):
+                market = "SZ"
+            elif code.startswith(("43", "83", "87", "88", "92")):
+                market = "BJ"
+            else:
+                market = "SH"
+        return f"{code}.{market}"
+
     def _snapshot_key(self, stock_code: str) -> str:
-        """把通用代码（600000.SH / 600000）转为 market:snapshot:{prefix} key"""
-        code = str(stock_code).strip()
+        """把通用代码（600000.SH / 600000）转为 market:snapshot:{后缀正典} key"""
+        code = str(stock_code).strip().upper()
         if '.' in code:
             code_part, _, market = code.partition('.')
-            market = market.upper()
-            prefix = 'sh' if market == 'SH' else ('sz' if market == 'SZ' else 'bj')
-        else:
-            code_part = code
-            prefix = 'sh' if code_part.startswith('6') else ('sz' if code_part.startswith(('0', '3')) else 'bj')
-        return f"market:snapshot:{prefix}{code_part}"
+            return f"market:snapshot:{self._suffix_of(code_part, market)}"
+        return f"market:snapshot:{self._suffix_of(code, '')}"
 
     def _validate_data(self, snapshot):
         """验证数据有效性
@@ -357,16 +373,16 @@ class MarketDataToRedis:
                 
                 if snapshot and self._validate_data(snapshot):
                     # 构造符合 QuantMind 行情快照规范V1.0 的 Redis Key
-                    # market:snapshot:{sh|sz|bj}{code}（与 stream/remote_redis_source 优先格式一致）
+                    # market:snapshot:{后缀正典}（与 stream/remote_redis_source 优先格式一致）
                     if '.' in stock_code:
-                        code, _, market = stock_code.partition('.')
-                        market = market.upper()
-                        prefix = 'sh' if market == 'SH' else ('sz' if market == 'SZ' else 'bj')
-                        redis_key = f"market:snapshot:{prefix}{code}"
-                        symbol = redis_key.removeprefix('market:snapshot:')
+                        code, _, market = str(stock_code).partition('.')
+                        suffix = self._suffix_of(code, market)
+                        redis_key = f"market:snapshot:{suffix}"
+                        symbol = suffix
                     else:
-                        redis_key = f"market:snapshot:{str(stock_code).lower()}"
-                        symbol = str(stock_code).lower()
+                        suffix = self._suffix_of(str(stock_code), '')
+                        redis_key = f"market:snapshot:{suffix}"
+                        symbol = suffix
 
                     # 构造符合规范的数据结构（字段与 stream/remote_redis_source 消费完全一致）
                     try:

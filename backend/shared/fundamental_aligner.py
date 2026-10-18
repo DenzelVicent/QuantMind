@@ -26,7 +26,7 @@ class FundamentalAligner:
 
     @staticmethod
     def _normalize_instrument(symbol: Any) -> str:
-        return StockCodeUtil.to_prefix(str(symbol or ""))
+        return StockCodeUtil.normalize(str(symbol or ""))
 
     @staticmethod
     def _base_col(key: str) -> str:
@@ -56,7 +56,7 @@ class FundamentalAligner:
         symbols: list[str],
         needed_columns: list[str],
     ) -> pd.DataFrame:
-        """经 quantdb_hub 读取交易日快照，symbol 归一化为前缀式。"""
+        """经 quantdb_hub 读取交易日快照，symbol 归一化为后缀正典。"""
         from backend.services.engine.data_platform.quantdb_hub import QuantDBDataHub
 
         hub = QuantDBDataHub.get_instance()
@@ -65,7 +65,7 @@ class FundamentalAligner:
 
         dt = pd.to_datetime(current_date).normalize()
         dt_int = int(dt.strftime("%Y%m%d"))
-        # features_daily.symbol 为后缀式，输入 instruments 为前缀式，先归一化。
+        # features_daily.symbol 为后缀式，输入统一归一化为后缀正典后查询。
         suffix_symbols = [
             StockCodeUtil.to_suffix(str(s)) for s in symbols if str(s or "").strip()
         ]
@@ -98,7 +98,7 @@ class FundamentalAligner:
 
         df = df.copy()
         df["symbol"] = df["symbol"].map(
-            lambda value: StockCodeUtil.to_prefix(str(value or ""))
+            lambda value: StockCodeUtil.normalize(str(value or ""))
         )
         df = df[df["symbol"] != ""]
         df = df.drop_duplicates(subset="symbol", keep="last").set_index("symbol")

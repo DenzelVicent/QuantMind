@@ -68,18 +68,24 @@ def _snapshot_candidate_keys(symbol: str) -> list[str]:
     """快照兼容键候选列表（与 stream 服务 remote_redis_source 口径一致）。
 
     快照由第三方推送，历史存在多种键格式，按优先级全路径探测：
-      1. market:snapshot:{小写前缀}（规范，如 market:snapshot:sh600036）
+      0. market:snapshot:{后缀正典}（最高优，如 market:snapshot:600036.SH）
+      1. market:snapshot:{小写前缀}（老规范，如 market:snapshot:sh600036）
       2. market:snapshot:{大写前缀}（大小写容错）
       3. stock:{code}.{MARKET}（Legacy 后缀式，如 stock:600036.SH）
     """
     from backend.shared.stock_utils import StockCodeUtil
 
+    suffix = StockCodeUtil.to_suffix(str(symbol or "").strip().upper())
     prefix = StockCodeUtil.to_prefix(str(symbol or "").strip().upper())
-    if not prefix:
+    if not prefix and not suffix:
         return []
-    code = prefix[2:]
-    market = prefix[:2]
-    return [
+    market, code = StockCodeUtil.split_prefix(prefix or suffix)
+    if not market:
+        market, code = (prefix or suffix)[:2], (prefix or suffix)[2:]
+    keys: list[str] = []
+    if suffix:
+        keys.append(f"market:snapshot:{suffix}")
+    return keys + [
         f"market:snapshot:{prefix.lower()}",
         f"market:snapshot:{prefix}",
         f"stock:{code}.{market}",
@@ -253,14 +259,9 @@ def _to_int(value: Any, default: int = 0) -> int:
 
 
 def _normalize_to_broker_symbol(sym: str) -> str:
-    s = str(sym or "").strip().upper()
-    if s.startswith("SH") and len(s) > 2:
-        return f"{s[2:]}.SH"
-    elif s.startswith("SZ") and len(s) > 2:
-        return f"{s[2:]}.SZ"
-    elif s.startswith("BJ") and len(s) > 2:
-        return f"{s[2:]}.BJ"
-    return s
+    from backend.shared.stock_utils import StockCodeUtil
+
+    return StockCodeUtil.to_suffix(sym)
 
 
 def _manual_task_agent_protect_price_ratio() -> float:
@@ -934,11 +935,12 @@ class ManualExecutionService:
 
     @staticmethod
     def _build_task_label(task_type: str) -> str:
-        return (
-            "自动托管任务"
-            if str(task_type or "").strip().lower() == "hosted"
-            else "手动执行任务"
-        )
+        normalized = str(task_type or "").strip().lower()
+        if normalized == "hosted":
+            return "自动托管任务"
+        if normalized == "hosted_sim":
+            return "模拟托管任务"
+        return "手动执行任务"
 
     @staticmethod
     def _build_strategy_snapshot(
@@ -2058,12 +2060,13 @@ class ManualExecutionService:
         tenant_id: str,
         user_id: str,
         active_runtime_id: str | None = None,
+        task_type: str = "hosted",
     ) -> dict[str, Any] | None:
         items = await manual_execution_persistence.list_tasks(
             tenant_id=tenant_id,
             user_id=user_id,
             limit=1,
-            task_type="hosted",
+            task_type=task_type,
             parent_runtime_id=active_runtime_id,
         )
         if items:
@@ -2073,7 +2076,7 @@ class ManualExecutionService:
                 tenant_id=tenant_id,
                 user_id=user_id,
                 limit=1,
-                task_type="hosted",
+                task_type=task_type,
             )
             return fallback[0] if fallback else None
         return None
@@ -2764,7 +2767,7 @@ class ManualExecutionService:
                 protect_price_ratio = _manual_task_agent_protect_price_ratio()
                 order_type = "MARKET"
                 quantity = _to_int(row.get("quantity"), 0)
-                # 模拟模式无 QMT Agent 临门查价，直接使用预案参考价成交。
+                # 模拟市价单由撮合引擎按实时行情定价；预案价格仅作参考。
                 order_price = 0.0 if trading_mode == "REAL" else preview_price
 
                 order_payload = {

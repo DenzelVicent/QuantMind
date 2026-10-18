@@ -277,13 +277,27 @@ def load_model(model_dir: Path, meta: dict):
 # 4. 数据加载
 # ═══════════════════════════════════════════════════════════════════════════
 
+def _exclude_st_enabled() -> bool:
+    """是否剔除 ST/*ST。默认 False = 放开（保留 ST）。
+
+    设置 INFERENCE_EXCLUDE_ST=true 可恢复剔除。
+    """
+    return os.getenv("INFERENCE_EXCLUDE_ST", "false").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
 def filter_untradable_rows(df: pd.DataFrame) -> pd.DataFrame:
     """过滤不可交易记录（停牌、零成交、ST 股等）。
 
     剔除条件：
     - close <= 0（价格异常）
     - volume <= 0（零成交/停牌）
-    - is_st == 1（ST / *ST / 退市整理股）
+    - is_st == 1（ST / *ST / 退市整理股）—— 默认放开，
+      仅 INFERENCE_EXCLUDE_ST=true 时剔除
     """
     if df.empty:
         return df
@@ -300,8 +314,8 @@ def filter_untradable_rows(df: pd.DataFrame) -> pd.DataFrame:
             pd.to_numeric(filtered["volume"], errors="coerce") > 0
         ].copy()
 
-    # 排除 ST / *ST / 退市股
-    if "is_st" in filtered.columns:
+    # 排除 ST / *ST / 退市股（默认放开；INFERENCE_EXCLUDE_ST=true 时启用）
+    if "is_st" in filtered.columns and _exclude_st_enabled():
         filtered = filtered.loc[
             pd.to_numeric(filtered["is_st"], errors="coerce") != 1
         ].copy()

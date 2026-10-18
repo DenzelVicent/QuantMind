@@ -759,12 +759,7 @@ async def _ensure_latest_table_data(session, table_name: str | None = None) -> b
 
 def _to_suffix_symbol(sym: str) -> str:
     """Convert PG internal format (SH600036) to QuantDB suffix format (600036.SH)."""
-    s = sym.upper()
-    if s.startswith("SH") or s.startswith("SZ") or s.startswith("BJ"):
-        return f"{s[2:]}.{s[:2]}"
-    if "." in s:
-        return s
-    return s
+    return StockCodeUtil.to_suffix(sym)
 
 
 def _suffix_matches_exchange(symbol: str, exchange: str) -> bool:
@@ -1087,8 +1082,8 @@ def _filter_items_by_quantdb(
 ) -> list[PoolItem]:
     """用 QuantDBQueryExecutor 对 QuantDB 条件过滤，与 PG 结果取交集。
 
-    PG 结果 symbol 为 prefix 格式（SH600036），QuantDB 执行器返回 suffix 格式
-    （600036.SH），先统一成 prefix 再求交集。
+    PG 结果 symbol 为后缀式（600036.SH），QuantDB 执行器返回后缀式
+    （600036.SH），两侧统一成后缀正典再求交集。
     """
     if not qdb_conditions or not items:
         return items
@@ -1102,21 +1097,21 @@ def _filter_items_by_quantdb(
             logger.info("QuantDB filter returned empty set — no stock passes the QuantDB conditions")
             return []
 
-        # suffix → prefix 统一
-        qdb_prefix = {
-            StockCodeUtil.to_prefix(s)
+        # 后缀正典统一
+        qdb_suffix = {
+            StockCodeUtil.normalize(s)
             for s in qdb_symbols_suffix
             if s
         }
-        if not qdb_prefix:
+        if not qdb_suffix:
             return []
 
         logger.info(
-            "QuantDB filter: %d symbols passed conditions (prefix-sample: %s)",
-            len(qdb_prefix),
-            list(qdb_prefix)[:3],
+            "QuantDB filter: %d symbols passed conditions (suffix-sample: %s)",
+            len(qdb_suffix),
+            list(qdb_suffix)[:3],
         )
-        return [it for it in items if StockCodeUtil.to_prefix(it.symbol) in qdb_prefix]
+        return [it for it in items if StockCodeUtil.normalize(it.symbol) in qdb_suffix]
     except Exception as exc:
         # 过滤失败时降级为不过滤（保持旧行为），但记录告警以便排查
         logger.warning("QuantDB filter failed, returning PG results unfiltered: %s", exc)

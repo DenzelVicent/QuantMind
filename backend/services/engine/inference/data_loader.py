@@ -6,6 +6,7 @@ Extracted from inference_parquet.py template to avoid code duplication.
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 import numpy as np
@@ -69,6 +70,19 @@ def resolve_parquet_path(data_dir: Path, trade_date: str, meta: dict | None = No
     return None
 
 
+def _exclude_st_enabled() -> bool:
+    """是否剔除 ST/*ST。默认 False = 放开（保留 ST）。
+
+    设置 INFERENCE_EXCLUDE_ST=true 可恢复剔除。
+    """
+    return os.getenv("INFERENCE_EXCLUDE_ST", "false").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
 def filter_untradable_rows(
     df: pd.DataFrame,
     exclude_limit_moves: bool = False,
@@ -78,6 +92,8 @@ def filter_untradable_rows(
     exclude_limit_moves: 额外剔除信号日触及涨跌停的标的。回测须开启 ——
     信号日涨停的股票次日一字板买不进，计入组合会高估收益。推理路径保持
     默认关闭，以免改变现有线上行为。
+
+    ST/*ST 默认放开（保留）；设置 INFERENCE_EXCLUDE_ST=true 才剔除。
     """
     if df.empty:
         return df
@@ -94,7 +110,7 @@ def filter_untradable_rows(
             pd.to_numeric(filtered["volume"], errors="coerce") > 0
         ].copy()
 
-    if "is_st" in filtered.columns:
+    if "is_st" in filtered.columns and _exclude_st_enabled():
         filtered = filtered.loc[
             pd.to_numeric(filtered["is_st"], errors="coerce") != 1
         ].copy()

@@ -194,17 +194,13 @@ def compute_position_scores(
     df = df[df["fusion_score"].notna()].copy()
     if df.empty:
         return []
-    df["code"] = df["symbol"].map(lambda s: s.split(".")[0] if "." in s else s)
+    from backend.shared.stock_utils import StockCodeUtil as _SCU
+
+    df["code"] = df["symbol"].map(lambda s: _SCU.split_suffix(s)[0] or str(s).strip().upper())
 
     def _to_suffix(code: str) -> str:
-        """纯数字代码 → 后缀格式（与 instrument_detail.Symbol 对齐）。已带后缀则原样。"""
-        if "." in code:
-            return code
-        if code.startswith(("4", "8", "9")) and not code.startswith("9"):
-            return f"{code}.BJ"
-        if code.startswith("6") or code.startswith("9"):
-            return f"{code}.SH"
-        return f"{code}.SZ"
+        """任意口径代码 → 后缀格式（与 instrument_detail.Symbol 对齐，经中枢归一）。"""
+        return _SCU.normalize(code) or code
 
     df["symbol_sfx"] = df["code"].map(_to_suffix)
 
@@ -219,7 +215,7 @@ def compute_position_scores(
         ).fetchdf()
         # Ltsz 字段已是亿元单位（如 2124.91 = 平安银行流通市值2124亿），勿再除1e8
         meta["ltsz_yi"] = pd.to_numeric(meta["ltsz"], errors="coerce")
-        meta["board"] = meta["symbol"].map(lambda s: _classify_board(s.split(".")[0]))
+        meta["board"] = meta["symbol"].map(lambda s: _classify_board(_SCU.split_suffix(s)[0] or s))
         meta["cap_tier"] = meta["ltsz_yi"].map(_cap_tier)
         # instrument_detail 可能有同 symbol 多行（不同快照），取最新一条
         meta = meta.drop_duplicates(subset=["symbol"], keep="last")
@@ -290,10 +286,12 @@ def batch_update_quality(db, run_id: str, tenant_id: str, user_id: str,
     ).fetchall()
     if not rows:
         return
-    # symbol 归一（信号表 symbol 存纯数字或 suffix 不一致，都按纯数字匹配）
+    # symbol 归一（信号表 symbol 存纯数字/前缀/后缀三写法，都按后缀正典匹配）
+    from backend.shared.stock_utils import StockCodeUtil as _SCU2
+
     by_code: dict[str, Any] = {}
     for rid, sym, q in rows:
-        code = sym.split(".")[0] if sym and "." in sym else sym
+        code = _SCU2.split_suffix(sym)[0] or str(sym).strip().upper()
         by_code[str(code)] = (rid, q)
 
     update_sql = text("""
@@ -302,7 +300,7 @@ def batch_update_quality(db, run_id: str, tenant_id: str, user_id: str,
     updated = 0
     for p in predictions:
         sym = p["symbol"]
-        code = sym.split(".")[0] if "." in sym else sym
+        code = _SCU2.split_suffix(sym)[0] or str(sym).strip().upper()
         hit = by_code.get(str(code))
         if not hit:
             continue

@@ -53,7 +53,7 @@ echo "[3/3] Print status summary..."
 import asyncio
 from sqlalchemy import func, select
 from backend.shared.database_manager_v2 import get_session
-from backend.services.trade.simulation.models.corporate_action import SimulationCorporateAction
+from backend.services.simulation.models.corporate_action import SimulationCorporateAction
 
 async def main():
     async with get_session(read_only=True) as session:

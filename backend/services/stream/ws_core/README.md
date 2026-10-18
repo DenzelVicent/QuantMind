@@ -28,16 +28,18 @@
 **当前版本使用远程 Redis 行情快照作为主数据来源：**
 
 ```
-远程 Redis (REMOTE_QUOTE_REDIS_HOST)
+远程 Redis (REMOTE_QUOTE_REDIS_HOST)      ← 上游统一供给，本机只读
   market:snapshot:{symbol} (主路径)
   stock:{code}.{market} (兼容回退)
                          →  RemoteRedisDataSource.fetch_quotes()
                          →  QuotePusher._centralized_push_loop()
-                         →  append_series_point() 写入 market:series:{symbol}
                          →  quotes 表落库（PostgreSQL）
                          →  manager.publish("stock.{code}", {...})
                          →  已订阅的 WebSocket 客户端
 ```
+
+> 回写 `market:series:{symbol}`（`append_series_point()`）为可选动作，仅在
+> `STREAM_WRITE_SERIES=true` 时执行；OSS 默认关闭（行情时序由上游发布）。
 
 当前采用中心化轮询，不再按股票创建独立协程；默认 `push_interval=2.0秒`，仅当价格变化时才推送。
 

@@ -39,6 +39,7 @@ Thumbs.db
 .settings/
 build/
 dist/
+*.egg-info/
 out/
 electron/dist/
 electron/out/

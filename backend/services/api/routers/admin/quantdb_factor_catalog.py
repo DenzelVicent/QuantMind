@@ -13,7 +13,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 
 from backend.services.api.user_app.middleware.auth import require_admin
 from backend.services.engine.data_platform.quantdb_factor_reader import (
@@ -438,15 +438,36 @@ async def load_quantdb_training_sources(market: str = "CN") -> dict[str, Any]:
         await _ensure_schema(session)
         statuses = await _cached_factor_sources(session, market)
         rows = (await session.execute(text("""
-            SELECT version_id, source_dataset, published_at
+            SELECT version_id, version_name, source_dataset, published_at
             FROM qm_training_factor_catalog_version
             WHERE status = 'published' AND market = :market
         """), {"market": market})).mappings().all()
     published = {str(row["source_dataset"]): dict(row) for row in rows}
+    # 一次查出各已发布版本的因子总数与默认勾选数，供训练页数据源卡片直接展示
+    #（避免前端为每个源再调一次 feature-catalog）。
+    mapping_stats: dict[str, dict[str, int]] = {}
+    version_ids = [str(row["version_id"]) for row in rows if row["version_id"]]
+    if version_ids:
+        stat_rows = (await session.execute(text("""
+            SELECT version_id,
+                   COUNT(*) AS feature_count,
+                   COALESCE(SUM(CASE WHEN default_selected THEN 1 ELSE 0 END), 0) AS default_selected_count
+            FROM qm_training_factor_mapping
+            WHERE version_id IN :version_ids
+            GROUP BY version_id
+        """).bindparams(bindparam("version_ids", expanding=True)),
+            {"version_ids": version_ids},
+        )).mappings().all()
+        for stat_row in stat_rows:
+            mapping_stats[str(stat_row["version_id"])] = {
+                "feature_count": int(stat_row["feature_count"] or 0),
+                "default_selected_count": int(stat_row["default_selected_count"] or 0),
+            }
     sources = []
     for source in sources_for_market(market):
         status = statuses[source]
         version = published.get(source)
+        stats = mapping_stats.get(str(version["version_id"])) if version else None
         sources.append({
             "id": source,
             "name": FACTOR_SOURCE_LABELS[source],
@@ -454,9 +475,15 @@ async def load_quantdb_training_sources(market: str = "CN") -> dict[str, Any]:
             "ready": bool(status["ready"]),
             "published": version is not None,
             "trainable": bool(status["ready"]) and version is not None,
-            "feature_count": 0,
+            "feature_count": (stats or {}).get("feature_count", 0),
+            "default_selected_count": (stats or {}).get("default_selected_count", 0),
             "catalog_version": version["version_id"] if version else None,
+            "version_name": version.get("version_name") if version else None,
             "schema_hash": status["schema_hash"],
+            "min_date": status["min_date"],
+            "max_date": status["max_date"],
+            "file_count": int(status["files"] or 0),
+            "column_count": int(status["column_count"] or 0),
             "reason": status["reason"] if not status["ready"] else (
                 None if version else "尚未发布因子目录"
             ),

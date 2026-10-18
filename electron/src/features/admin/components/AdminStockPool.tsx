@@ -984,7 +984,7 @@ const AdminStockPool: React.FC = () => {
                                                             setParseFileName('');
                                                         }
                                                     }}
-                                                    placeholder={'600519\n贵州茅台\nSH600036\n300750,宁德时代'}
+                                                    placeholder={'600519.SH\n贵州茅台\n600036.SH\n300750.SZ,宁德时代'}
                                                 />
                                             </Card>
                                         </Col>
@@ -1263,13 +1263,13 @@ const AdminStockPool: React.FC = () => {
                             />
                         )}
 
-                        <Divider orientation="left">成员（前缀式，一行一个）</Divider>
+                        <Divider orientation="left">成员（后缀式，一行一个）</Divider>
                         <Input.TextArea
                             rows={10}
                             value={memberDraft}
                             onChange={(e) => setMemberDraft(e.target.value)}
                             disabled={detail.is_system}
-                            placeholder={'SH600036\nSZ000001\nSH600519'}
+                            placeholder={'600036.SH\n000001.SZ\n600519.SH'}
                             style={{ fontFamily: 'monospace' }}
                         />
                         <Space style={{ marginTop: 8 }} wrap>

@@ -99,16 +99,16 @@ export const BACKTEST_CONFIG = {
     },
 
     BENCHMARKS: [
-      { code: 'SH000300', name: '沪深300' },
-      { code: 'SH000905', name: '中证500' },
-      { code: 'SH000852', name: '中证1000' },
+      { code: '000300.SH', name: '沪深300' },
+      { code: '000905.SH', name: '中证500' },
+      { code: '000852.SH', name: '中证1000' },
     ],
 
     MARKET_BENCHMARKS: {
       CN: [
-        { code: 'SH000300', name: '沪深300' },
-        { code: 'SH000905', name: '中证500' },
-        { code: 'SH000852', name: '中证1000' },
+        { code: '000300.SH', name: '沪深300' },
+        { code: '000905.SH', name: '中证500' },
+        { code: '000852.SH', name: '中证1000' },
       ],
       HK: [
         { code: 'HSI', name: '恒生指数' },

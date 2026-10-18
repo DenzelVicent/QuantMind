@@ -88,7 +88,7 @@ def _invalidate_cache() -> None:
 def _enrich_names_industry(db_url: str, start_date: date) -> int:
     """回填 stock_name / industry（fill_pg_from_parquet 不写这两列）。
 
-    来源 QuantDB instrument_list（Symbol→Name、rs_hyname），统一转前缀式内码。
+    来源 QuantDB instrument_list（Symbol→Name、rs_hyname），统一转后缀正典。
     仅更新窗口内行，避免整表写放大。
     """
     import psycopg2
@@ -108,14 +108,14 @@ def _enrich_names_industry(db_url: str, start_date: date) -> int:
         )
         if name_col:
             name_map = {
-                StockCodeUtil.to_prefix(str(s)): str(n)
+                StockCodeUtil.normalize(str(s)): str(n)
                 for s, n in zip(stock_list["symbol"], stock_list[name_col], strict=False)
                 if n
             }
     ind_map: dict[str, str] = {}
     if not industry.empty and {"symbol", "ind_name_l1"}.issubset(industry.columns):
         ind_map = {
-            StockCodeUtil.to_prefix(str(s)): str(n)
+            StockCodeUtil.normalize(str(s)): str(n)
             for s, n in zip(industry["symbol"], industry["ind_name_l1"], strict=False)
             if n
         }
@@ -220,7 +220,7 @@ def _enrich_gap_columns(db_url: str, start_date: date, end_date: date) -> None:
         )
         per_date = pd.DataFrame(
             {
-                "symbol": fd["symbol"].map(lambda s: StockCodeUtil.to_prefix(str(s))),
+                "symbol": fd["symbol"].map(lambda s: StockCodeUtil.normalize(str(s))),
                 "trade_date": trade_dt.dt.date,
                 "is_st": _to_num(fd.get("is_st")).fillna(0).astype(int),
                 "idx_hs300": _to_num(fd.get("in_hs300")).fillna(0).astype(int),
@@ -284,14 +284,14 @@ def _enrich_gap_columns(db_url: str, start_date: date, end_date: date) -> None:
         ):
             hit = [c for c, kws in _CONCEPT_KEYWORDS.items() if any(k in name for k in kws)]
             if hit:
-                concept_flags.setdefault(StockCodeUtil.to_prefix(sym), set()).update(hit)
+                concept_flags.setdefault(StockCodeUtil.normalize(sym), set()).update(hit)
 
     idx_members: dict[str, set[str]] = {}
     for col, fname in _IDX_WEIGHT_FILES.items():
         p = os.path.join(base, "2_base_sector", "index_weights", fname)
         if os.path.exists(p):
             df = pd.read_parquet(p, columns=["Symbol"])
-            idx_members[col] = {StockCodeUtil.to_prefix(str(s)) for s in df["Symbol"]}
+            idx_members[col] = {StockCodeUtil.normalize(str(s)) for s in df["Symbol"]}
 
     symbols = set(concept_flags)
     for members in idx_members.values():

@@ -138,6 +138,54 @@ class TestTopkDropout:
         assert sells == ["Y", "Z"]  # 分数最低的两只
         assert buys == ["A", "B"]   # 分数最高的两只新股
 
+    def test_dropout_buy_count_capped_by_sellable(self):
+        """剔除股部分无行情：新增只数被钳到「有行情可卖」的剔除股数（买卖对账）。
+
+        回归场景：盘中实时行情覆盖不全（实测 258/3055），10 只剔除股只有 2 只有
+        行情——旧实现仍按计划剔除数 10 只去分摊买入，仓位越调越胖（50→53）。
+        """
+        calc = RebalanceCalculator()
+        signals = [
+            _sig("A", 0.9), _sig("B", 0.8), _sig("C", 0.7),
+            _sig("X", 0.3), _sig("Y", 0.2), _sig("Z", 0.1),
+        ]
+        strategy = StrategyConfig(topk=3, n_drop=2, max_position_pct=1.0)
+        account = _account({"X": 100, "Y": 100, "Z": 100}, cash=100_000)
+        # Y 缺行情：只有 Z 能释放资金
+        quotes = {s.symbol: _quote(s.symbol) for s in signals if s.symbol != "Y"}
+
+        orders = calc.calculate(signals, strategy, quotes, account, day_index=1)
+
+        sells, buys = _orders_by_side(orders)
+        assert sells == ["Z"]  # Y 无行情 → 卖单被丢弃（默认不兜底）
+        assert buys == ["A"]   # 新增上限钳到 1 只，不再按计划剔除数买 2 只
+
+    def test_dropout_missing_quote_sell_uses_cost_when_force_exit(self):
+        """force_exit_on_limit_down=True 时，无行情剔除股按持仓成本价挂单留痕。"""
+        calc = RebalanceCalculator()
+        signals = [
+            _sig("A", 0.9), _sig("B", 0.8), _sig("C", 0.7),
+            _sig("X", 0.3), _sig("Y", 0.2), _sig("Z", 0.1),
+        ]
+        strategy = StrategyConfig(
+            topk=3,
+            n_drop=2,
+            max_position_pct=1.0,
+            force_exit_on_limit_down=True,
+        )
+        account = _account({"X": 100, "Y": 100, "Z": 100}, cash=100_000)
+        account.positions["Y"]["cost"] = 12.5  # 无行情时回退用成本价
+        quotes = {s.symbol: _quote(s.symbol) for s in signals if s.symbol != "Y"}
+
+        orders = calc.calculate(signals, strategy, quotes, account, day_index=1)
+
+        sells, buys = _orders_by_side(orders)
+        assert sells == ["Y", "Z"]
+        y_order = next(o for o in orders if o.symbol == "Y" and o.side == "SELL")
+        assert y_order.price == 12.5
+        # 资金仍只按有行情的 Z 计，买入上限 1 只（不超买）
+        assert buys == ["A"]
+
     def test_n_drop_zero_full_rebalance(self):
         """n_drop=0 → 既有全量调仓行为：跌出 topk 的清仓，保留股也重新配权。"""
         calc = RebalanceCalculator()

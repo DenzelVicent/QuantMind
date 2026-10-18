@@ -547,10 +547,11 @@ class QuantDBFactorReader:
             subset=["symbol", "trade_date"], keep="last"
         )
         # QuantDB may publish either suffix or prefix codes.  QuantMind's
-        # canonical internal representation is the prefix form (SH600036),
+        # canonical internal representation is the suffix form (600036.SH),
         # including model inputs, prediction outputs, and persistence keys.
+        # (过渡期读兼容：normalize 同时接受前后缀输入。)
         frame["symbol"] = frame["symbol"].map(
-            lambda value: StockCodeUtil.to_prefix(str(value))
+            lambda value: StockCodeUtil.normalize(str(value))
         )
         return frame
 

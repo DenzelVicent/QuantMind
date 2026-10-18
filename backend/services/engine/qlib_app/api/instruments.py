@@ -10,6 +10,8 @@ from typing import Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
+from backend.shared.stock_utils import StockCodeUtil
+
 router = APIRouter(tags=["instruments"])  # 不要添加prefix，让main.py统一管理
 
 # 股票数据缓存
@@ -72,8 +74,10 @@ def _load_qlib_instruments() -> list[dict[str, str]]:
 
                 # 保持原始前缀格式: SH600000
                 if len(symbol) >= 8:
-                    market = symbol[:2]  # SH, SZ, BJ
-                    code = symbol[2:]  # 600000
+                    market, code = StockCodeUtil.split_prefix(symbol)
+                    if not market:
+                        market = symbol[:2]  # SH, SZ, BJ
+                        code = symbol[2:]  # 600000
                     formatted_symbol = symbol
                 else:
                     formatted_symbol = symbol

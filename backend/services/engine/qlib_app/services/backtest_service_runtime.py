@@ -52,6 +52,7 @@ from backend.services.engine.qlib_app.utils.structured_logger import (
     StructuredTaskLogger,
 )
 from backend.shared.notification_publisher import publish_notification_async
+from backend.shared.stock_utils import StockCodeUtil
 from backend.shared.utils import normalize_user_id
 from .backtest_service_query import QlibBacktestServiceQueryMixin
 
@@ -1149,29 +1150,7 @@ class QlibBacktestServiceRuntimeMixin(QlibBacktestServiceQueryMixin):
     @staticmethod
     def _to_qlib_prefix_code(code: str) -> str:
         """将股票代码转为 qlib 前缀格式（sh600000 / sz000001 / bj920000）。"""
-        s = str(code or "").strip().lower()
-        if not s:
-            return s
-        # 已是 qlib 小写前缀格式
-        if len(s) == 8 and s[:2] in {"sh", "sz", "bj"}:
-            return s
-        # 后缀格式: 600036.SH → sh600036
-        if "." in s:
-            parts = s.split(".")
-            if len(parts) == 2 and len(parts[0]) == 6 and parts[0].isdigit():
-                return parts[1].lower() + parts[0]
-        # 前缀大写: SH600036 → sh600036
-        if len(s) == 8 and s[:2] in {"sh", "sz", "bj"}:
-            return s
-        # 纯6位数字: 600036 → sh600036
-        if s.isdigit() and len(s) == 6:
-            if s.startswith(("6", "9")):
-                return "sh" + s
-            if s.startswith(("0", "2", "3")):
-                return "sz" + s
-            if s.startswith(("4", "8")):
-                return "bj" + s
-        return s
+        return StockCodeUtil.to_qlib(code or "")
 
     @staticmethod
     def _extract_strategy_config_from_code(content: str) -> dict[str, Any]:

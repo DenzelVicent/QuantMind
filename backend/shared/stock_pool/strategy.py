@@ -38,19 +38,19 @@ def apply_pool_to_universe(
     *,
     strict: bool = True,
 ) -> PoolUniverseResult:
-    """把 ``universe`` 符号表按股票池引用裁剪，返回交集（前缀式，保序）。
+    """把 ``universe`` 符号表按股票池引用裁剪，返回交集（保序，保留 universe 原格式）。
 
     Args:
-        symbols: universe 解析出的符号表（任意口径，内部归一为前缀式）。
+        symbols: universe 解析出的符号表（任意口径，内部以后缀正典键比对）。
         pool_ref: 池引用（``pool:csi300`` / 裸 code / ``list:...`` /
             ``file:...`` / ``all``），空则不过滤。
         tenant_id/user_id: 池可见域（用户私有池需要；缺省只能解析全局/内置池）。
         strict: True 时空池/零交集抛 ``ValueError``；False 时返回原表并记警告。
     """
-    from .filters import _to_prefix, intersect_symbols
+    from .filters import _norm_suffix, intersect_symbols
     from .resolver import ResolveContext, resolver as pool_resolver
 
-    base = [_to_prefix(s) for s in (symbols or [])]
+    base = [_norm_suffix(s) for s in (symbols or [])]
     ref = (pool_ref or "").strip()
     if not ref:
         return PoolUniverseResult(symbols=base)
@@ -68,7 +68,7 @@ def apply_pool_to_universe(
             warnings=list(snapshot.warnings or []),
         )
 
-    allowed = {_to_prefix(s) for s in (snapshot.api_symbols or [])}
+    allowed = {_norm_suffix(s) for s in (snapshot.api_symbols or [])}
     allowed.discard("")
     if not allowed:
         msg = f"股票池 {snapshot.pool_id} 解析为空池，拒绝退化为全市场"

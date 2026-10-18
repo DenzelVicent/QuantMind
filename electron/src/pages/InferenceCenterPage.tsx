@@ -44,7 +44,7 @@ import { InferenceHistoryPanel } from '../components/inference/InferenceHistoryP
 import { useAppSelector } from '../store';
 import { selectCurrentMarket } from '../store/slices/uiSlice';
 import { getMarketConfig } from '../config/marketConfig';
-import { normalizeStockCode, toSuffixCode } from '../utils/portfolioUtils';
+import { normalizeSymbol, splitPrefixCode, toSuffixCode } from '../utils/portfolioUtils';
 import { stockListService, Stock } from '../services/stockListService';
 
 const { Text } = Typography;
@@ -103,8 +103,8 @@ export const InferenceCenterPage: React.FC = () => {
   // ─────────────────────────────────────────────────────────────
   // 模块 2：个股推理中心 (Individual Stock Inference) 状态
   // ─────────────────────────────────────────────────────────────
-  const [symbol, setSymbol] = useState('SH600519');
-  const [inputCode, setInputCode] = useState('SH600519');
+  const [symbol, setSymbol] = useState('600519.SH');
+  const [inputCode, setInputCode] = useState('600519.SH');
   const [singleStockModelId, setSingleStockModelId] = useState<string>('');
   const [modelCategoryFilter, setModelCategoryFilter] = useState<'all' | 'dl' | 'tree' | 'ensemble'>('all');
   const [horizon, setHorizon] = useState<number>(5);
@@ -135,8 +135,9 @@ export const InferenceCenterPage: React.FC = () => {
     }
     const timer = setTimeout(() => {
       try {
-        // 输入已是前缀式(如 SH600036)时取纯数字部分匹配，兼容本地 code 字段
-        const digits = kw.replace(/^(SH|SZ|BJ)/i, '').replace(/[^\dA-Za-z]/g, '');
+        // 前缀式/后缀式/裸码统一走 splitPrefixCode 取裸码部分，兼容本地 code 字段
+        const [, bare] = splitPrefixCode(kw);
+        const digits = bare.replace(/[^\dA-Za-z]/g, '');
         const results = stockListService.isLoaded()
           ? stockListService.search(kw, 8).length
             ? stockListService.search(kw, 8)
@@ -151,8 +152,9 @@ export const InferenceCenterPage: React.FC = () => {
   }, [inputCode, showCodeSuggestions]);
 
   const handleSelectSuggestion = (stock: Stock) => {
-    // 本地索引 symbol 为后缀式(600000.SH)，统一转前缀式(SH600000)
-    const normalized = normalizeStockCode(`${stock.market}${stock.code}`);
+    // 本地索引 symbol 已是后缀式(600000.SH)；market 为纯市场前缀(BJ/SH/SZ)时拼接得前缀式，
+    // 统一经 normalizeSymbol 归一为后缀式。优先直接用 symbol，避免 market 口径变化导致拼接错误。
+    const normalized = normalizeSymbol(stock.symbol || `${stock.market}${stock.code}`);
     setShowCodeSuggestions(false);
     setCodeSuggestions([]);
     handleCommitSingleCode(normalized);
@@ -433,7 +435,7 @@ export const InferenceCenterPage: React.FC = () => {
     targetModelId?: string,
     targetHorizon?: number
   ) => {
-    const sym = (targetSymbol || symbol || 'SH600519').trim();
+    const sym = normalizeSymbol((targetSymbol || symbol || '600519.SH').trim());
     // 主模型：显式指定 > 首个勾选模型；勾选的模型集合整体传给后端同时推理
     const mId = targetModelId || singleStockModelId || consensusModelIds[0] || '';
     const hor = targetHorizon || horizon;
@@ -517,7 +519,7 @@ export const InferenceCenterPage: React.FC = () => {
 
   const handleCommitSingleCode = (raw: string) => {
     if (!raw.trim()) return;
-    const normalized = normalizeStockCode(raw.trim());
+    const normalized = normalizeSymbol(raw.trim());
     setSymbol(normalized);
     setInputCode(normalized);
     handleRunSingleStockInference(normalized);
@@ -848,7 +850,7 @@ export const InferenceCenterPage: React.FC = () => {
                             {s.name || s.code}
                           </span>
                           <span className="text-[11px] font-mono text-blue-600 shrink-0">
-                            {s.market}{s.code}
+                            {normalizeSymbol(s.symbol || `${s.market}${s.code}`)}
                           </span>
                         </div>
                       ))}

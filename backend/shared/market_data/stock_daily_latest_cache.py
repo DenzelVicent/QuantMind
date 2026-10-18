@@ -27,8 +27,8 @@ class StockDailyLatestCache:
         self.redis = get_redis_sentinel_client()
 
     def _get_key(self, symbol: str) -> str:
-        # 统一代码格式，例如 SH600519
-        formatted_symbol = StockCodeUtil.to_prefix(symbol)
+        # 统一后缀正典，例如 600519.SH
+        formatted_symbol = StockCodeUtil.normalize(symbol)
         return f"{CACHE_KEY_PREFIX}:{formatted_symbol}"
 
     def _serialize(self, data: dict) -> str:
@@ -49,18 +49,22 @@ class StockDailyLatestCache:
         except Exception as e:
             logger.warning(f"Failed to read cache for {symbol}: {e}")
 
-        # 缓存未命中，从数据库读取
+        # 缓存未命中，从数据库读取（suffix 优先、老 prefix 兜底）
+        suffix = StockCodeUtil.normalize(symbol) or symbol
+        prefix = StockCodeUtil.to_prefix(symbol) or symbol
+        candidates = [suffix] if suffix == prefix else [suffix, prefix]
         async with get_session() as session:
-            result = await session.execute(
-                text("SELECT * FROM stock_daily_latest WHERE symbol = :s ORDER BY trade_date DESC LIMIT 1"),
-                {"s": symbol}
-            )
-            row = result.mappings().first()
-            if row:
-                data = dict(row)
-                # 异步写入缓存（不阻塞主流程）
-                self.set_latest_sync(symbol, data)
-                return data
+            for cand in candidates:
+                result = await session.execute(
+                    text("SELECT * FROM stock_daily_latest WHERE symbol = :s ORDER BY trade_date DESC LIMIT 1"),
+                    {"s": cand}
+                )
+                row = result.mappings().first()
+                if row:
+                    data = dict(row)
+                    # 异步写入缓存（不阻塞主流程）
+                    self.set_latest_sync(symbol, data)
+                    return data
         return None
 
     def set_latest_sync(self, symbol: str, data: dict):
@@ -92,16 +96,23 @@ class StockDailyLatestCache:
             logger.warning(f"Redis mget failed: {e}")
             missing_symbols = symbols
 
-        # 2. 缺失部分从数据库补偿
+        # 2. 缺失部分从数据库补偿（suffix 优先、老 prefix 兜底）
         if missing_symbols:
             async with get_session() as session:
                 # 注意：这里使用 IN 查询，且只取最新日期的数据
                 # 为了性能，建议数据库有 (symbol, trade_date) 的联合索引
+                normed: list[str] = []
+                for s in missing_symbols:
+                    sfx = StockCodeUtil.normalize(s) or s
+                    pfx = StockCodeUtil.to_prefix(s) or s
+                    normed.append(sfx)
+                    if pfx != sfx:
+                        normed.append(pfx)
                 query = text("""
                     SELECT * FROM stock_daily_latest 
                     WHERE symbol = ANY(:symbols)
                 """)
-                db_results = await session.execute(query, {"symbols": missing_symbols})
+                db_results = await session.execute(query, {"symbols": normed})
 
                 # 由于 stock_daily_latest 理论上每只股票只有一行最新数据，直接存入即可
                 pipe = self.redis.pipeline()

@@ -30,6 +30,7 @@ from backend.services.engine.data_platform.base import (
     InvalidFieldRequest,
     OfflineDataSourceAdapter,
 )
+from backend.shared.stock_utils import StockCodeUtil
 
 logger = logging.getLogger(__name__)
 
@@ -58,21 +59,10 @@ def _to_qdb_symbol(symbol: str) -> str:
 
     支持输入: 600036.SH, SH600036, 600036
     BJ 前缀: BJ873169 -> 873169.BJ
+
+    委托 StockCodeUtil.to_suffix，号段规则以中枢为准。
     """
-    s = symbol.strip().upper()
-    if "." in s:
-        return s  # 已经是 600036.SH 格式
-    if s.startswith("SH") or s.startswith("SZ") or s.startswith("BJ"):
-        return f"{s[2:]}.{s[:2]}"
-    # 纯数字：根据规则自动识别
-    if s.isdigit():
-        if s.startswith("6") or s.startswith("9"):
-            return f"{s}.SH"
-        if s.startswith("0") or s.startswith("3") or s.startswith("2"):
-            return f"{s}.SZ"
-        if s.startswith("4") or s.startswith("8"):
-            return f"{s}.BJ"
-    return s
+    return StockCodeUtil.to_suffix(symbol)
 
 
 class QuantDBAdapter(OfflineDataSourceAdapter):

@@ -8,6 +8,7 @@ import { Plus, Trash2, Play, Save, BookOpen, AlertCircle, TrendingUp, RefreshCw 
 import ReactECharts from 'echarts-for-react';
 import { qlibDataService, FactorExpression, FactorCalculationResult } from '../../services/qlib/qlibDataService';
 import { BACKTEST_CONFIG } from '../../config/backtest';
+import { normalizeSymbol } from '../../utils/portfolioUtils';
 
 // 常用因子模板
 const FACTOR_TEMPLATES = [
@@ -155,7 +156,7 @@ export const FactorExpressionEditor: React.FC = () => {
         <div className="grid grid-cols-3 gap-3 mb-4">
           <div>
             <label className="block text-sm mb-1.5">股票代码</label>
-            <input type="text" value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} placeholder="000001.SZ" className="w-full px-3 py-2 border rounded-lg" />
+            <input type="text" value={symbol} onChange={(e) => setSymbol(normalizeSymbol(e.target.value))} placeholder="000001.SZ" className="w-full px-3 py-2 border rounded-lg" />
           </div>
           <div>
             <label className="block text-sm mb-1.5">开始日期</label>

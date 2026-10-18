@@ -63,20 +63,22 @@ npm run dashboard:build  # 生产环境构建
   - 客户后端只读 raw 绝对地址，默认 `https://quantmindai.cn/gitea/qusong0627/QuantMInd/raw/branch/release-index/release-index.json`，可用 `QUANTMIND_RELEASE_INDEX_URL` 覆盖。本机部署提交来自 `deploy/update.sh` 写入的 `backend/shared/version.json`（完整 `commit` 与 `rev_count`，已 gitignore）。落后数等于本机 SHA 在 `commits` 里的下标；SHA 不在列表中时 `status=diverged`，前端不显示个数。
   - 容器内没有 `.git`。禁止在运行中的后端里 `git fetch` / `git rev-list`。对比逻辑只在 `backend/shared/version.py`。
 
-## 股票代码标准化（重要，分层口径）
+## 股票代码标准化（重要，全系统 QuantDB 后缀口径）
 
-- **QuantDB parquet / Qlib / 行情数据层**：后缀式（如 `600036.SH`，Qlib 桥接用全小写 `sh600036`）。查 parquet、`stock-terminal`（仅接受后缀校验）、Qlib `D.features` 时必须用此格式，否则静默查空。
-- **PG 数据库字段 / Redis 键 / 前端 / Strategy Lab SDK / 大多数 API**：前缀式（如 `SH600036`）。
+- **唯一通用格式**：后缀式（如 `600036.SH`，指数同步后缀如 `000300.SH`）。后端 / 前端 / PG / Redis / API / 行情一律此格式。
+- **唯一例外**：Qlib 桥接用全小写 `sh600036`，仅在进出 Qlib 层边界经 `to_qlib()` 转换，不落库。
 - **层边界必须经 `StockCodeUtil` 显式转换，禁止散落手写切片**，禁止跨层混用：
-  - 后端：`backend/shared/stock_utils.py` → `StockCodeUtil.to_suffix(code)` / `.to_prefix(code)` / `.to_qlib(code)`
-  - 前端：`electron/src/utils/portfolioUtils.ts` → `normalizeStockCode(code)`（输出前缀式）
-- **Redis 键格式**：
-  - 快照：`market:snapshot:sh600036`（快照键用小写前缀）
-  - 序列：`market:series:SH600036`（序列用标准前缀式）
+  - 后端：`backend/shared/stock_utils.py` → `StockCodeUtil.normalize(code)`（正典，即 `to_suffix`）/ `.to_qlib(code)`；`.to_prefix(code)` / `.split_prefix()` 仅过渡期读老数据用，新写入禁用
+  - 前端：`electron/src/utils/portfolioUtils.ts` → `normalizeSymbol(code)`（输出后缀式）；`normalizeStockCode` 已废弃
+- **Redis 键格式（迁移后）**：
+  - 快照：`market:snapshot:600036.SH`
+  - 序列：`market:series:600036.SH`
+  - 读端保留老键兼容直到最终清理，见迁移脚本 `--delete-old`
+- **存量迁移**：`backend/scripts/migrate_stock_code_to_suffix.py`（PG 通用列 + Redis 键，幂等，先 `--dry-run`）
 - **市场自动识别**：
-  - `SH`：6xxxxx、9xxxxx
-  - `SZ`：0xxxxx、3xxxxx、2xxxxx
-  - `BJ`：4xxxxx、8xxxxx
+  - `SH`：60、68、90 开头
+  - `SZ`：00、30、20 开头
+  - `BJ`：43、83、87、88、92 开头
 
 ## 环境变量
 

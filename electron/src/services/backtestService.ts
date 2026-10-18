@@ -15,6 +15,7 @@
 import axios, { AxiosInstance } from 'axios';
 import { SERVICE_URLS } from '../config/services';
 import { authService } from '../features/auth/services/authService';
+import { normalizeSymbol, splitSuffixCode } from '../utils/portfolioUtils';
 
 // ============================================================================
 // 类型定义
@@ -472,8 +473,9 @@ class BacktestService {
 
     const normalizeQty = (symbol: string, qty: number): number => {
       const qtyInt = Math.round(qty);
-      const upper = String(symbol || '').toUpperCase();
-      if ((upper.startsWith('SH') || upper.startsWith('SZ') || upper.startsWith('BJ')) && qtyInt >= 100) {
+      // 先归一为后缀式再判市场，前后缀/裸码都进整手分支
+      const [, market] = splitSuffixCode(symbol);
+      if ((market === 'SH' || market === 'SZ' || market === 'BJ') && qtyInt >= 100) {
         const lotRounded = Math.round(qtyInt / 100) * 100;
         if (Math.abs(qtyInt - lotRounded) <= 2) return lotRounded;
       }
@@ -577,17 +579,17 @@ class BacktestService {
     if (['all', 'csi300', 'csi500', 'csi800', 'csi1000'].includes(normalized.toLowerCase())) {
       return normalized;
     }
-    const symbols = symbol
+    // 全局股票池引用（pool:<code>）直接透传
+    if (normalized.toLowerCase().startsWith('pool:')) {
+      return normalized;
+    }
+    const symbols = normalized
       .split(',')
       .map((item) => item.trim())
       .filter(Boolean);
     if (!symbols.length) return 'csi300';
-    return symbols
-      .map((sym) => {
-        const parts = sym.split('.');
-        return parts.length === 2 ? `${parts[1]}${parts[0]}` : sym;
-      })
-      .join(' ');
+    // 后缀/前缀/裸码统一归一为后缀式（600000.SH），空格拼接，供 qlib universe 使用
+    return symbols.map((sym) => normalizeSymbol(sym)).join(' ');
   }
 
   /**
@@ -760,7 +762,7 @@ class BacktestService {
       start_date: config.start_date,
       end_date: config.end_date,
       initial_capital: config.initial_capital,
-      benchmark: config.benchmark_symbol || 'SH000300',
+      benchmark: config.benchmark_symbol || '000300.SH',
       universe: this.buildUniverse(config.symbol),
       // 基础费率，后端会据此计算详细费用
       commission: config.commission ?? 0.00025,
@@ -815,6 +817,10 @@ class BacktestService {
 
     if (config.strategy_code?.trim()) {
       payload.strategy_content = config.strategy_code;
+    }
+
+    if (config.strategy_id != null && String(config.strategy_id).trim() !== '') {
+      payload.strategy_id = String(config.strategy_id).trim();
     }
 
     // 使用异步模式提交：立即返回 task_id，由前端轮询/WebSocket 获取结果。
@@ -1001,7 +1007,7 @@ class BacktestService {
           start_date: config.start_date,
           end_date: config.end_date,
           initial_capital: config.initial_capital,
-          benchmark: 'SH000300',
+          benchmark: '000300.SH',
           universe: this.buildUniverse(config.symbol),
           // 简单模式仅支持佣金费率
           commission: 0.00025,
@@ -1078,7 +1084,7 @@ class BacktestService {
       start_date: config.start_date,
       end_date: config.end_date,
       initial_capital: config.initial_capital,
-      benchmark: config.benchmark_symbol || 'SH000300',
+      benchmark: config.benchmark_symbol || '000300.SH',
       universe: this.buildUniverse(config.symbol || ''),
 
       // 使用标准 A 股费率字段

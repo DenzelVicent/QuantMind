@@ -20,7 +20,7 @@ class MarketDataDaily(Base):
 
     # 复合主键
     trade_date = Column(Date, primary_key=True, nullable=False, comment="交易日期")
-    symbol = Column(String(32), primary_key=True, nullable=False, comment="股票代码 (e.g. sh600519)")
+    symbol = Column(String(32), primary_key=True, nullable=False, comment="股票代码 (e.g. 600519.SH)")
 
     # ── 基础行情字段 ─────────────────────────────────────────────────────────
     open          = Column(Float, nullable=True, comment="开盘价")

@@ -580,7 +580,7 @@ class TdxRollingTradeService:
                 symbol = str(item.get("raw_symbol") or item.get("symbol") or "").strip()
             else:
                 volume = int(item.get("volume") or 0)
-                symbol = StockCodeUtil.to_prefix(
+                symbol = StockCodeUtil.normalize(
                     str(item.get("symbol") or "")
                 ) or str(item.get("symbol") or "").strip()
             if volume <= 0 or not symbol:

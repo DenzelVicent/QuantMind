@@ -11,6 +11,7 @@ import { QlibBacktestResult, QlibBacktestConfig } from '../../types/backtest/qli
 import type { BacktestResult, BacktestConfig } from '../../services/backtestService';
 import { backtestClient } from '../../services/aiStrategyClients';
 import { loadStockNameIndex, lookupStockName } from '../../services/marketDataService';
+import { splitSuffixCode } from '../../utils/portfolioUtils';
 
 type Trade = {
   date: string;
@@ -447,8 +448,9 @@ const normalizeTradeRows = (
 
   const normalizeQty = (symbol: string, qty: number): number => {
     const qtyInt = Math.round(qty);
-    const upper = String(symbol || '').toUpperCase();
-    if ((upper.startsWith('SH') || upper.startsWith('SZ') || upper.startsWith('BJ')) && qtyInt >= 100) {
+    // 先归一为后缀式再判市场，前后缀/裸码都进整手分支
+    const [, market] = splitSuffixCode(symbol);
+    if ((market === 'SH' || market === 'SZ' || market === 'BJ') && qtyInt >= 100) {
       const lotRounded = Math.round(qtyInt / 100) * 100;
       if (Math.abs(qtyInt - lotRounded) <= 2) return lotRounded;
     }

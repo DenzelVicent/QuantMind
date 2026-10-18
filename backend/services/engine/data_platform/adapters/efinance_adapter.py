@@ -140,7 +140,12 @@ class EfinanceAdapter(OfflineDataSourceAdapter):
         df["symbol"] = df["code"].astype(str).str.upper().apply(
             lambda c: f"{c}.{_guess_exchange(c, m)}" if "." not in c else c
         )
-        df["exchange"] = df["symbol"].str.split(".").str[1]
+        # symbol 列上一行刚由 code+_guess_exchange 构造成后缀式；exchange 经中枢拆分。
+        # 注：_guess_exchange 保留手写号段——中枢未覆盖基金代码（11/51/5→SH，12/15/16→SZ），
+        # 且 efinance 元数据含基金，改中枢会误判，故此处仅替换拆分写法。
+        from backend.shared.stock_utils import StockCodeUtil as _SCU
+
+        df["exchange"] = df["symbol"].map(lambda s: _SCU.split_suffix(s)[1] or "")
         df["market"] = m
         df["is_active"] = True
         df["list_date"] = None

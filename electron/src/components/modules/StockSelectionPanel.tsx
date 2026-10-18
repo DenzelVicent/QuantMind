@@ -9,6 +9,7 @@ import {
 import axios from 'axios';
 import { SERVICE_ENDPOINTS } from '../../config/services';
 import { buildCsvText, downloadCsvFile } from '../../utils/csvExport';
+import { normalizeSymbol } from '../../utils/portfolioUtils';
 
 interface StockResult {
     symbol: string;
@@ -326,11 +327,13 @@ export const StockSelectionPanel: React.FC<StockSelectionPanelProps> = ({
     };
 
     const toggleStock = (symbol: string) => {
+        // 入 Set 即归一为后缀式
+        const key = normalizeSymbol(symbol);
         const newSelected = new Set(selectedStocks);
-        if (newSelected.has(symbol)) {
-            newSelected.delete(symbol);
+        if (newSelected.has(key)) {
+            newSelected.delete(key);
         } else {
-            newSelected.add(symbol);
+            newSelected.add(key);
         }
         setSelectedStocks(newSelected);
     };
@@ -339,7 +342,7 @@ export const StockSelectionPanel: React.FC<StockSelectionPanelProps> = ({
         if (selectedStocks.size === results.length) {
             setSelectedStocks(new Set());
         } else {
-            setSelectedStocks(new Set(results.map(s => s.symbol)));
+            setSelectedStocks(new Set(results.map(s => normalizeSymbol(s.symbol))));
         }
     };
 
@@ -350,7 +353,7 @@ export const StockSelectionPanel: React.FC<StockSelectionPanelProps> = ({
     };
 
     const handleExport = () => {
-        const selectedData = results.filter(s => selectedStocks.has(s.symbol));
+        const selectedData = results.filter(s => selectedStocks.has(normalizeSymbol(s.symbol)));
         const csv = buildCsvText(
             ['股票代码', '股票名称', '市盈率', '市净率', '市值(万)', 'ROE(%)', '成交额(万)', '收盘价'],
             selectedData.map(s => [
@@ -572,13 +575,13 @@ export const StockSelectionPanel: React.FC<StockSelectionPanelProps> = ({
                                         {results.map((stock, idx) => (
                                             <tr
                                                 key={stock.symbol}
-                                                className={`hover:bg-gray-50 transition-colors ${selectedStocks.has(stock.symbol) ? 'bg-green-50' : ''
+                                                className={`hover:bg-gray-50 transition-colors ${selectedStocks.has(normalizeSymbol(stock.symbol)) ? 'bg-green-50' : ''
                                                     }`}
                                             >
                                                 <td className="px-4 py-3">
                                                     <input
                                                         type="checkbox"
-                                                        checked={selectedStocks.has(stock.symbol)}
+                                                        checked={selectedStocks.has(normalizeSymbol(stock.symbol))}
                                                         onChange={() => toggleStock(stock.symbol)}
                                                         className="rounded border-gray-300 text-green-600 focus:ring-green-500"
                                                     />

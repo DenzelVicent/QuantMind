@@ -37,6 +37,19 @@ import { getStoredTailTradeMode, setStoredTailTradeMode, getTailTradeDealPrice, 
 import { Modal } from 'antd';
 import type { StockPoolOption } from '../../services/stockPoolOptionService';
 import { StockPoolPickerModal } from '../backtest/StockPoolPickerModal';
+import { normalizeSymbol } from '../../utils/portfolioUtils';
+
+/**
+ * 存取 localStorage 前后归一：个股代码归后缀式；pool: 引用与指数/池关键词透传。
+ */
+const normalizeStoredSymbol = (value: unknown): string => {
+  const s = String(value ?? '').trim();
+  if (!s || s.toLowerCase().startsWith('pool:')) return s;
+  if (/^\d{6}$/.test(s) || /^\d{6}\.(SH|SZ|BJ)$/i.test(s) || /^(SH|SZ|BJ)\d{6}$/i.test(s)) {
+    return normalizeSymbol(s);
+  }
+  return s;
+};
 
 const DEFAULT_TEMPLATE_ID = 'standard_topk';
 
@@ -201,10 +214,17 @@ export const EnhancedQuickBacktest: React.FC = () => {
   const handleSaveConfig = () => {
     const configName = window.prompt('请输入配置名称：');
     if (!configName) return;
+    // 存前归后缀
+    const cfgToStore = {
+      ...backtestConfig,
+      strategy_code: strategyCode,
+      symbol: normalizeStoredSymbol(backtestConfig.symbol),
+      benchmark_symbol: normalizeStoredSymbol(backtestConfig.benchmark_symbol),
+    };
     const newConfig = {
       id: Date.now().toString(),
       name: configName,
-      config: { ...backtestConfig, strategy_code: strategyCode },
+      config: cfgToStore,
       created_at: new Date().toISOString(),
     };
     const updated = [...savedConfigs, newConfig];
@@ -215,7 +235,13 @@ export const EnhancedQuickBacktest: React.FC = () => {
   const handleLoadConfig = (configId: string) => {
     const config = savedConfigs.find(c => c.id === configId);
     if (config) {
-      updateBacktestConfig(config.config);
+      // 读时再归一（含历史存量前缀式）
+      const loaded = {
+        ...config.config,
+        symbol: normalizeStoredSymbol(config.config?.symbol),
+        benchmark_symbol: normalizeStoredSymbol(config.config?.benchmark_symbol),
+      };
+      updateBacktestConfig(loaded);
       setStrategyCode(config.config.strategy_code || '');
     }
   };
@@ -490,14 +516,14 @@ export const EnhancedQuickBacktest: React.FC = () => {
                 <div className="space-y-1">
                   <label className="text-sm font-medium text-gray-700">基准指数</label>
                   <select
-                    value={backtestConfig.benchmark_symbol || 'SH000300'}
+                    value={backtestConfig.benchmark_symbol || '000300.SH'}
                     onChange={(e) => updateBacktestConfig({ benchmark_symbol: e.target.value })}
                     className="w-full px-3 py-2 bg-white border border-gray-300 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                   >
-                    <option value="SH000300">沪深300</option>
-                    <option value="SH000905">中证500</option>
-                    <option value="SH000852">中证1000</option>
-                    <option value="SZ399006">创业板指</option>
+                    <option value="000300.SH">沪深300</option>
+                    <option value="000905.SH">中证500</option>
+                    <option value="000852.SH">中证1000</option>
+                    <option value="399006.SZ">创业板指</option>
                   </select>
                 </div>
                 <div className="space-y-1">

@@ -594,6 +594,14 @@ class LocalMarketData:
         prior = [d for d in sessions if d < dt_int]
         return prior[-1] if prior else None
 
+    def st_symbols(self) -> frozenset[str]:
+        """ST 标的集合（公开入口；仅 CN 有意义，其余市场返回空集）。"""
+        from backend.services.simulation.services.market_rules import Market
+
+        if self.market is not Market.CN:
+            return frozenset()
+        return self._st_symbol_set()
+
     def _st_symbol_set(self) -> frozenset[str]:
         """ST 标的集合：IsSTGP 标志 + 证券简称含 ST，双路判定。
 

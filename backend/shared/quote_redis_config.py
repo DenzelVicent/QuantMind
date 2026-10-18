@@ -1,7 +1,8 @@
 """全市场最新行情 Redis（模拟撮合 / stream 直读唯一默认源）。
 
 写死为公网行情库；可用 REMOTE_QUOTE_REDIS_* 环境变量覆盖（部署调试用）。
-延时约 1–2 分钟；键格式 market:series:{SH600036}（ZSET）。
+延时约 1–2 分钟；键格式后缀正典 market:series:{600036.SH}（ZSET），
+读端兼容老前缀键 market:series:{SH600036}。
 """
 
 from __future__ import annotations

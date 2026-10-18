@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from backend.services.live_trading.services.internal_strategy_dispatcher import (
     dispatch_internal_strategy_order,
 )
@@ -21,7 +23,13 @@ class _FakeResult:
         return self._value
 
 
-def test_simulation_dispatch_uses_submit_and_fill_not_hand_insert():
+@pytest.mark.parametrize(
+    "order_type,expected_type,expected_price",
+    [(None, "limit", 10.5), ("MARKET", "market", None), ("LIMIT", "limit", 10.5)],
+)
+def test_simulation_dispatch_uses_submit_and_fill_not_hand_insert(
+    order_type, expected_type, expected_price
+):
     async def _run():
         db = MagicMock()
         db.execute = AsyncMock(return_value=_FakeResult(None))
@@ -58,6 +66,7 @@ def test_simulation_dispatch_uses_submit_and_fill_not_hand_insert():
                     "side": "BUY",
                     "quantity": 100,
                     "price": 10.5,
+                    "order_type": order_type,
                     "client_order_id": "manual-abc",
                     "remarks": "manual task",
                 },
@@ -73,8 +82,8 @@ def test_simulation_dispatch_uses_submit_and_fill_not_hand_insert():
         assert result["result"]["success"] is True
         submit.assert_awaited_once()
         kwargs = submit.await_args.kwargs
-        assert kwargs["order_type"] == "limit"
-        assert kwargs["price"] == 10.5
+        assert kwargs["order_type"] == expected_type
+        assert kwargs["price"] == expected_price
         assert kwargs["client_order_id"] == "manual-abc"
         assert kwargs["trigger_source"] == "manual"
         assert str(kwargs["remarks"]).startswith("client_order_id=manual-abc")

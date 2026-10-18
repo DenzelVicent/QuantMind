@@ -15,9 +15,9 @@ import type { AppMarket } from '../../store/slices/uiSlice';
 
 const MARKET_BENCHMARKS: Record<string, { label: string; value: string }[]> = {
   CN: [
-    { label: '沪深300', value: 'SH000300' },
-    { label: '中证500', value: 'SH000905' },
-    { label: '中证1000', value: 'SH000852' },
+    { label: '沪深300', value: '000300.SH' },
+    { label: '中证500', value: '000905.SH' },
+    { label: '中证1000', value: '000852.SH' },
   ],
   HK: [
     { label: '恒生指数', value: 'HSI' },

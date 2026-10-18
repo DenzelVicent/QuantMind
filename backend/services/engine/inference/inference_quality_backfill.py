@@ -185,7 +185,7 @@ def _load_real_returns_quantdb(trade_date: str, horizon: int) -> pd.DataFrame:
         return pd.DataFrame(columns=["symbol", "label"])
 
     out = ((piv[d1] / piv[d0]) - 1.0).dropna().rename("label").reset_index()
-    out["symbol"] = out["symbol"].map(StockCodeUtil.to_prefix)
+    out["symbol"] = out["symbol"].map(StockCodeUtil.normalize)
     return out[["symbol", "label"]]
 
 
@@ -277,10 +277,10 @@ class InferenceQualityBackfill:
             return None
         df = pd.DataFrame([dict(r) for r in rows])
         df = df.rename(columns={"fusion_score": "score"})
-        # 统一成 prefix 口径（PG 层），与 QuantDB 侧经 StockCodeUtil 转换后的 symbol 对齐
+        # 统一成 suffix 正典口径，与 QuantDB 侧经 StockCodeUtil 转换后的 symbol 对齐
         from backend.shared.stock_utils import StockCodeUtil
 
-        df["symbol"] = df["symbol"].map(lambda s: StockCodeUtil.to_prefix(str(s)))
+        df["symbol"] = df["symbol"].map(lambda s: StockCodeUtil.normalize(str(s)))
         return df
 
     async def backfill_date(self, *, tenant_id: str = "default", user_id: str = "",

@@ -70,9 +70,9 @@ import {
   fmtPositiveOrDash,
   fmtSignedPercent2,
   normalizeRoe,
-  normalizeSymbol,
   safeNum,
 } from '../features/research/utils/formatters';
+import { normalizeSymbol } from '../utils/portfolioUtils';
 import {
   flattenProjectedValues,
   mergePoolFeatures,
@@ -999,7 +999,8 @@ export const ResearchPlatformPage: React.FC = () => {
       try {
         const members = await getStockPoolMembers(poolId);
         if (cancelled) return;
-        setFilterPoolMembers(new Set(members));
+        // 入 Set 前归一为后缀式，与 has 对比侧同口径
+        setFilterPoolMembers(new Set(members.map((m) => normalizeSymbol(String(m)))));
       } catch (error) {
         console.error('[ResearchPlatformPage] load stock pool members failed:', error);
         if (!cancelled) setFilterPoolMembers(new Set());
@@ -1161,10 +1162,10 @@ export const ResearchPlatformPage: React.FC = () => {
         if (!nameHit && !codeHit) return;
       }
 
-      // --- 全局股票池成分 ---
+      // --- 全局股票池成分（两侧都已归一为后缀式，直接比） ---
       if (filterPoolMembers.size > 0) {
         const code = normalizeSymbol(item.code);
-        if (!filterPoolMembers.has(code) && !filterPoolMembers.has(code.toUpperCase())) return;
+        if (!filterPoolMembers.has(code)) return;
       }
 
       matches.push({ ...item, isMatched: true });

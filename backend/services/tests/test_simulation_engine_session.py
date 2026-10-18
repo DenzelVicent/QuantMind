@@ -8,6 +8,57 @@ from backend.services.simulation.services.signal_loader import _normalize_signal
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("with_series", [False, True])
+async def test_live_quotes_include_snapshot_only_symbols(with_series):
+    series_tick = {"price": 41.0, "timestamp": 1000, "age_s": 20}
+    snapshot_tick = {
+        "price": 13.37,
+        "timestamp": 1000,
+        "age_s": 20,
+        "price_source": "redis_snapshot",
+        "recent_volume": None,
+    }
+    series = {"600036.SH": series_tick} if with_series else {}
+    snapshots = AsyncMock(return_value={"301037.SZ": snapshot_tick})
+    with (
+        patch(
+            "backend.services.simulation.services.redis_series_quote.fetch_series_ticks",
+            AsyncMock(return_value=series),
+        ),
+        patch(
+            "backend.services.simulation.services.redis_series_quote.fetch_snapshot_ticks",
+            snapshots,
+        ),
+    ):
+        quotes, ticks = await SimulationEngine()._load_live_quotes(
+            ["600036.SH", "301037.SZ"] if with_series else ["301037.SZ"]
+        )
+    snapshots.assert_awaited_once_with(["301037.SZ"])
+    assert quotes["301037.SZ"].current_price == 13.37
+    assert quotes["SZ301037"].current_price == 13.37
+    assert ticks["301037.SZ"] is snapshot_tick
+    if with_series:
+        assert ticks["600036.SH"] is series_tick
+
+
+@pytest.mark.asyncio
+async def test_live_quotes_do_not_read_snapshots_when_series_covers_all():
+    snapshots = AsyncMock()
+    with (
+        patch(
+            "backend.services.simulation.services.redis_series_quote.fetch_series_ticks",
+            AsyncMock(return_value={"600036.SH": {"price": 41.0}}),
+        ),
+        patch(
+            "backend.services.simulation.services.redis_series_quote.fetch_snapshot_ticks",
+            snapshots,
+        ),
+    ):
+        await SimulationEngine()._load_live_quotes(["600036.SH"])
+    snapshots.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_run_cycle_uses_get_session_not_db_manager_session():
     engine = SimulationEngine()
     engine.signal_loader = MagicMock()
@@ -69,7 +120,9 @@ def test_ensure_redis_attaches_connected_trade_client():
 
     fake = MagicMock()
     fake.client = object()
-    with patch("backend.services.trade_shared.redis_client.get_redis", return_value=fake):
+    with patch(
+        "backend.services.trade_shared.redis_client.get_redis", return_value=fake
+    ):
         engine._ensure_redis()
 
     assert engine.redis is fake
@@ -114,7 +167,9 @@ async def test_bootstrap_run_uses_local_bars_when_realtime_empty():
 
     with (
         patch("backend.services.simulation.engine.get_session", fake_get_session),
-        patch.object(engine, "_load_strategy_config", AsyncMock(return_value=MagicMock())),
+        patch.object(
+            engine, "_load_strategy_config", AsyncMock(return_value=MagicMock())
+        ),
         patch.object(engine, "_ensure_redis"),
         patch.object(
             engine.account_manager,
@@ -187,7 +242,9 @@ async def test_non_bootstrap_still_rejects_without_realtime():
 
     with (
         patch("backend.services.simulation.engine.get_session", fake_get_session),
-        patch.object(engine, "_load_strategy_config", AsyncMock(return_value=MagicMock())),
+        patch.object(
+            engine, "_load_strategy_config", AsyncMock(return_value=MagicMock())
+        ),
         patch.object(engine, "_ensure_redis"),
         patch.object(
             engine.account_manager,

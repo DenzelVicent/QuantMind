@@ -29,6 +29,7 @@ from backend.shared.qlib_multiplicative_factor import (
     covered_dates,
     unexplained_ex_dates,
 )
+from backend.shared.stock_utils import StockCodeUtil
 
 logger = logging.getLogger(__name__)
 
@@ -763,17 +764,9 @@ class QlibDataBuilder:
     def _to_qdb_symbol(self, qlib_symbol: str) -> str:
         """Qlib 格式 -> 原生 symbol。必须与 _to_qlib_symbol 完全对称。"""
         s = qlib_symbol.strip()
-        # A 股：exchange 前缀还原
+        # A 股：exchange 前缀还原（委托中枢，大小写不敏感）
         if self._market == "CN":
-            if s.startswith("sh"):
-                return f"{s[2:]}.SH"
-            if s.startswith("sz"):
-                return f"{s[2:]}.SZ"
-            if s.startswith("bj"):
-                return f"{s[2:]}.BJ"
-            if "." in s:
-                return s
-            return s
+            return StockCodeUtil.to_suffix(s)
         # 非 A 股：剥离市场前缀
         prefix = _MARKET_QLIB_PREFIX.get(self._market, "mkt_")
         if s.startswith(prefix):

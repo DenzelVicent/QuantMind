@@ -7,6 +7,7 @@ import { Search, RefreshCw, TrendingUp, Calendar, AlertCircle } from 'lucide-rea
 import ReactECharts from 'echarts-for-react';
 import { qlibDataService, QlibMarketData } from '../../services/qlib/qlibDataService';
 import { BACKTEST_CONFIG } from '../../config/backtest';
+import { normalizeSymbol } from '../../utils/portfolioUtils';
 
 export const MarketDataViewer: React.FC = () => {
   const [symbol, setSymbol] = useState('000001.SZ');
@@ -89,7 +90,7 @@ export const MarketDataViewer: React.FC = () => {
         <div className="grid grid-cols-4 gap-3">
           <div>
             <label className="block text-sm mb-1.5">股票代码</label>
-            <input type="text" value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} placeholder="000001.SZ" className="w-full px-3 py-2 border rounded-lg" />
+            <input type="text" value={symbol} onChange={(e) => setSymbol(normalizeSymbol(e.target.value))} placeholder="000001.SZ" className="w-full px-3 py-2 border rounded-lg" />
           </div>
           <div>
             <label className="block text-sm mb-1.5">开始日期</label>

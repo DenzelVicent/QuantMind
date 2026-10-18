@@ -87,7 +87,11 @@ class SimTradeService:
         if portfolio_id is not None:
             conditions.append(SimTrade.portfolio_id == portfolio_id)
         if symbol:
-            conditions.append(SimTrade.symbol == symbol.upper())
+            from backend.shared.stock_utils import StockCodeUtil
+
+            _sfx = StockCodeUtil.normalize(symbol)
+            _pfx = StockCodeUtil.to_prefix(symbol)
+            conditions.append(SimTrade.symbol.in_([v for v in dict.fromkeys([_sfx, _pfx]) if v]))
 
         stmt = (
             select(SimTrade).where(and_(*conditions)).order_by(SimTrade.executed_at.desc()).limit(limit).offset(offset)

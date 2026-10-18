@@ -125,10 +125,11 @@ if AUTO_INFERENCE_ENABLED:
             ),
         },
         # 推理质量回填：每日 02:30 回填已完成推理但缺 quality 记录的日期
-        # （滞后 5 天等真实收益兑现，算生产 Rank IC）
+        # （滞后 5 天等真实收益兑现，算生产 Rank IC）。
+        # 每天都跑（含周日）：口径是 T+5 滞后，与当日同步无关，周日跳过只会让回填整体晚一天。
         "backfill-inference-quality-daily": {
             "task": "engine.tasks.backfill_inference_quality",
-            "schedule": crontab(minute="30", hour="2", day_of_week="1-6"),
+            "schedule": crontab(minute="30", hour="2"),
             "kwargs": {"horizon_days": 5, "limit": 500},
         },
     }
@@ -172,14 +173,17 @@ if os.getenv("STRATEGY_LAB_SCAN_ENABLED", "true").lower() == "true":
     }
 
 # 交易日盘后计算市场分析快照（同步时间以用户在前端「同步调度」里的配置为准，
-# 不假设固定时刻已同步完）。beat 在 04:00–05:50 每 10 分钟触发一次，任务自带
+# 不假设固定时刻已同步完）。beat 在 04:00–08:00 每 10 分钟触发一次，任务自带
 # 新鲜度门控：库内分区未超过线上快照时直接跳过不覆盖，等用户配置的同步完成后
 # 的某一次轮询自然产出；节假日无新分区时全天跳过属正常行为。
+# 窗口上界取到 08:00：同步建议区间最晚到 06:00（含）且同步本身耗时约 10 分钟起，
+# 05:50 关窗会漏掉晚同步用户当天整天的快照。每天都跑（含周末）：周末同步下来的
+# 周五收盘数据也需要快照，否则市场分析页周末 stale 两天。
 # 产出 JSON + 标签 SQLite 到 QM_MARKET_SNAPSHOT_DIR=/data/market-analysis，API 读取。
 if os.getenv("MARKET_SNAPSHOT_ENABLED", "true").lower() == "true":
     beat_schedule["market-snapshot"] = {
         "task": "engine.tasks.market_snapshot",
-        "schedule": crontab(minute="*/10", hour="4-5", day_of_week="1-5"),
+        "schedule": crontab(minute="*/10", hour="4-8"),
     }
 
 # 已归档用户模型的保留期清理：归档是软删除（archive_model 只改 status），磁盘目录

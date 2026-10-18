@@ -127,7 +127,7 @@ class SimulationOCRService:
                         except (ValueError, TypeError):
                             current_price = 0.0
 
-                        symbol = StockCodeUtil.to_prefix(raw_code) if raw_code else None
+                        symbol = StockCodeUtil.normalize(raw_code) if raw_code else None
 
                         all_results.append({
                             "symbol": symbol,

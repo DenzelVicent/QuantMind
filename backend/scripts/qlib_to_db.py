@@ -46,26 +46,17 @@ def read_qlib_bin(path: str) -> list[float] | None:
 
 
 def qlib_symbol_to_standard(sym: str) -> str:
-    """sh600519 → 600519.SH, sz000001 → 000001.SZ"""
-    if sym.startswith("sh"):
-        return f"{sym[2:]}.SH"
-    elif sym.startswith("sz"):
-        return f"{sym[2:]}.SZ"
-    elif sym.startswith("bj"):
-        return f"{sym[2:]}.BJ"
-    return sym
+    """sh600519 → 600519.SH, sz000001 → 000001.SZ（委托中枢，大小写不敏感）"""
+    from backend.shared.stock_utils import StockCodeUtil
+
+    return StockCodeUtil.to_suffix(sym)
 
 
 def standard_to_qlib(sym: str) -> str:
-    """600519.SH → sh600519, 000001.SZ → sz000001"""
-    s = sym.upper()
-    if s.endswith(".SH"):
-        return f"sh{s[:-3]}"
-    elif s.endswith(".SZ"):
-        return f"sz{s[:-3]}"
-    elif s.endswith(".BJ"):
-        return f"bj{s[:-3]}"
-    return s.lower()
+    """600519.SH → sh600519, 000001.SZ → sz000001（委托中枢，大小写不敏感）"""
+    from backend.shared.stock_utils import StockCodeUtil
+
+    return StockCodeUtil.to_qlib(sym)
 
 
 def load_qlib_stock(sym_dir: str, dates: list[str]) -> pd.DataFrame | None:

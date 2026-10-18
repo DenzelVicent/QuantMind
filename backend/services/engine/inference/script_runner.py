@@ -166,10 +166,10 @@ def _load_close_price_map(trade_date: str) -> dict[str, float]:
             if not (px > 0) or px != px:  # NaN
                 continue
             try:
-                prefix = StockCodeUtil.to_prefix(raw_sym)
+                norm = StockCodeUtil.normalize(raw_sym)
             except Exception:
-                prefix = str(raw_sym).strip().upper()
-            digits = re.sub(r"\D", "", prefix)
+                norm = str(raw_sym).strip().upper()
+            digits = re.sub(r"\D", "", norm)
             if digits:
                 out[digits] = px
         logger.info(
@@ -702,17 +702,14 @@ class InferenceScriptRunner:
 
         # 加密货币 7×24，T+1 自然日
         if market_upper == "CRYPTO":
-            try:
-                d = _date.fromisoformat(str(data_trade_date)[:10])
-                return (d + timedelta(days=1)).isoformat()
-            except Exception:
-                return str(data_trade_date)
+            d = _date.fromisoformat(str(data_trade_date)[:10])
+            return (d + timedelta(days=1)).isoformat()
 
         try:
             import exchange_calendars as xcals
 
-            _MARKET_XCAL = {"A": "XSHG", "HK": "XHKG", "US": "XNYS"}
-            xcal_name = _MARKET_XCAL.get(market_upper, "XSHG")
+            _MARKET_XCAL = {"A": "XSHG", "CN": "XSHG", "HK": "XHKG", "US": "XNYS"}
+            xcal_name = _MARKET_XCAL[market_upper]
             cal = xcals.get_calendar(xcal_name)
             # 将输入日期转换为下一个交易日
             nxt = cal.next_session(data_trade_date)
@@ -722,14 +719,9 @@ class InferenceScriptRunner:
                 else str(nxt).split(" ")[0]
             )
         except Exception as e:
-            logger.warning(
-                f"[InferenceScriptRunner] 计算预测日期失败，回退到 T+1 自然日: {e}"
-            )
-            # 兜底：如果日历解析失败，至少加 1 天（自然日）
-            from datetime import datetime, timedelta
-
-            dt = datetime.strptime(data_trade_date, "%Y-%m-%d")
-            return (dt + timedelta(days=1)).strftime("%Y-%m-%d")
+            raise RuntimeError(
+                f"无法确定 {market_upper} 市场 {data_trade_date} 的下一交易日，停止推理；请检查交易日历"
+            ) from e
 
     def _query_dimension_readiness(self, trade_date: str, expected_dim: int) -> dict:
         # 使用同步驱动进行就绪度查询
@@ -924,7 +916,21 @@ class InferenceScriptRunner:
         script_path = self.primary_model_dir / self.primary_script_name
         primary_meta = self._read_primary_metadata()
         model_market = str((primary_meta.get("context") or {}).get("market") or "A").upper()
-        prediction_trade_date = self._resolve_prediction_trade_date(date, market=model_market)
+        try:
+            prediction_trade_date = self._resolve_prediction_trade_date(
+                date, market=model_market
+            )
+        except (RuntimeError, ValueError) as exc:
+            return ExecutionResult(
+                success=False,
+                exit_code=1,
+                stdout="",
+                stderr="",
+                error=str(exc),
+                failure_stage="trading_calendar",
+                data_trade_date=date,
+                active_model_id=self.primary_model_id,
+            )
         data_source = str(primary_meta.get("data_source") or "").lower()
         active_data_source = self._resolve_primary_active_data_source(primary_meta)
         if not script_path.is_file():
@@ -1192,14 +1198,14 @@ class InferenceScriptRunner:
             target_norm = set()
             for s in symbols:
                 try:
-                    target_norm.add(StockCodeUtil.to_prefix(s))
+                    target_norm.add(StockCodeUtil.normalize(s))
                 except Exception:
                     target_norm.add(str(s).strip())
             kept = []
             dropped = 0
             for sig in signals:
                 try:
-                    sig_sym = StockCodeUtil.to_prefix(str(sig.get("symbol") or ""))
+                    sig_sym = StockCodeUtil.normalize(str(sig.get("symbol") or ""))
                 except Exception:
                     sig_sym = str(sig.get("symbol") or "")
                 if sig_sym in target_norm:
@@ -1388,6 +1394,20 @@ class InferenceScriptRunner:
         return raw, [InferenceScriptRunner._normalize_code(x) for x in raw]
 
     @staticmethod
+    def _exclude_st_enabled() -> bool:
+        """是否在推理信号中剔除 ST/*ST。默认 False = 放开（保留 ST）。
+
+        历史行为是硬编码强制剔除（全市场约 5200 只里约 200 只 ST 被丢弃）。
+        现改为可配置：设置 INFERENCE_EXCLUDE_ST=true 可恢复剔除。
+        """
+        return os.getenv("INFERENCE_EXCLUDE_ST", "false").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
+
+    @staticmethod
     def _is_st_symbol(symbol: str, st_symbols: set[str], st_normalized: set[str] | None = None) -> bool:
         """判断股票代码是否为 ST。"""
         if symbol in st_symbols:
@@ -1417,9 +1437,15 @@ class InferenceScriptRunner:
         if not isinstance(data, list):
             return None
 
-        # 获取 ST 股票列表（预计算标准化代码集合）
-        st_symbols = InferenceScriptRunner._get_st_symbols()
-        st_normalized = {InferenceScriptRunner._normalize_code(s) for s in st_symbols}
+        # 获取 ST 股票列表（预计算标准化代码集合）。
+        # 默认放开 ST（不再剔除）；仅 INFERENCE_EXCLUDE_ST=true 时恢复剔除。
+        exclude_st = InferenceScriptRunner._exclude_st_enabled()
+        st_normalized: set[str] = set()
+        if exclude_st:
+            st_symbols = InferenceScriptRunner._get_st_symbols()
+            st_normalized = {
+                InferenceScriptRunner._normalize_code(s) for s in st_symbols
+            }
 
         valid = []
         for item in data:
@@ -1452,14 +1478,16 @@ class InferenceScriptRunner:
                     if symbol.startswith("399") and symbol.endswith(".SZ"):
                         continue
 
-                    # 4. 排除 ST/*ST 股票（代码匹配 + 名称匹配）
-                    sym_code = InferenceScriptRunner._normalize_code(symbol)
-                    if sym_code and sym_code in st_normalized:
-                        continue
-                    # 名称包含 ST 的也要排除（兜底）
-                    name = str(item.get("name", "")).upper()
-                    if "ST" in name and ("*" in name or name.startswith("ST")):
-                        continue
+                    # 4. 排除 ST/*ST 股票（代码匹配 + 名称匹配）。
+                    #    默认放开；仅 INFERENCE_EXCLUDE_ST=true 时启用。
+                    if exclude_st:
+                        sym_code = InferenceScriptRunner._normalize_code(symbol)
+                        if sym_code and sym_code in st_normalized:
+                            continue
+                        # 名称包含 ST 的也要排除（兜底）
+                        name = str(item.get("name", "")).upper()
+                        if "ST" in name and ("*" in name or name.startswith("ST")):
+                            continue
 
                     valid.append(
                         {

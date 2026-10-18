@@ -152,8 +152,17 @@ export interface QuantDBTrainingSource {
     published: boolean;
     trainable: boolean;
     feature_count: number;
+    /** 已发布版本中默认勾选的因子数（后端聚合；无版本时为 0） */
+    default_selected_count?: number;
     catalog_version: string | null;
+    /** 已发布版本的展示名称 */
+    version_name?: string | null;
     schema_hash: string;
+    /** 数据覆盖起止（后端缓存的分区扫描结果） */
+    min_date?: string | null;
+    max_date?: string | null;
+    file_count?: number;
+    column_count?: number;
     reason: string | null;
 }
 

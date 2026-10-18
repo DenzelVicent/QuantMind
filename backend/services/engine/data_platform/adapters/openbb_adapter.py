@@ -22,6 +22,7 @@ from backend.services.engine.data_platform.base import (
     InvalidFieldRequest,
     OfflineDataSourceAdapter,
 )
+from backend.shared.stock_utils import StockCodeUtil
 
 logger = logging.getLogger(__name__)
 
@@ -64,15 +65,13 @@ def _eastmoney_kline(symbol: str, start: date | None, end: date | None) -> pd.Da
     """通过东方财富 API 获取 A 股日 K 线。"""
     import requests as req
 
-    # symbol -> secid
-    s = symbol.strip().upper()
-    if s.endswith(".SZ"):
-        secid = f"0.{s.split('.')[0]}"
-    elif s.endswith(".SH"):
-        secid = f"1.{s.split('.')[0]}"
-    else:
-        code = s.split(".")[0] if "." in s else s
-        secid = f"1.{code}" if code.startswith(("6", "688")) else f"0.{code}"
+    from backend.shared.stock_utils import StockCodeUtil
+
+    # 先归一后缀正典（前后缀/裸码双收），再组装东财 secid（外部 API 参数格式，保持 0./1. 前缀）。
+    code, market = StockCodeUtil.split_suffix(symbol)
+    if not market:
+        market, code = StockCodeUtil.split_prefix(symbol)
+    secid = f"1.{code}" if market == "SH" else f"0.{code}"
 
     url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
     params = {
@@ -107,6 +106,31 @@ def _eastmoney_kline(symbol: str, start: date | None, end: date | None) -> pd.Da
     return df
 
 
+def _secid_of(symbol: str) -> str:
+    """任意口径 symbol → 东财 secid（外部 API 参数格式：沪 1./深 0.，保持原格式要求）。
+
+    先经 StockCodeUtil 归一（前后缀/裸码双收），再组装 secid；
+    BJ 归入 0.（东财 A 股接口仅 SH/SZ）。
+    """
+    from backend.shared.stock_utils import StockCodeUtil
+
+    code, market = StockCodeUtil.split_suffix(symbol)
+    if not market:
+        market, code = StockCodeUtil.split_prefix(symbol)
+    return f"1.{code}" if market == "SH" else f"0.{code}"
+
+
+def _ts_code_of(symbol: str) -> str:
+    """任意口径 symbol → tushare ts_code（外部 API 参数格式：600519.SH，保持后缀）。"""
+    from backend.shared.stock_utils import StockCodeUtil
+
+    norm = StockCodeUtil.normalize(symbol)
+    if "." in norm:
+        return norm.upper()
+    code, market = StockCodeUtil.split_prefix(symbol)
+    return f"{code}.{market or 'SH'}"
+
+
 def _tushare_kline(symbol: str, start: date | None, end: date | None) -> pd.DataFrame:
     """通过 tushare 获取 A 股日 K 线。"""
     import tushare as ts
@@ -119,11 +143,7 @@ def _tushare_kline(symbol: str, start: date | None, end: date | None) -> pd.Data
 
     s = symbol.strip().upper()
     if "." not in s:
-        code = s.split(".")[0] if "." in s else s
-        if code.startswith(("6", "688")):
-            ts_code = f"{code}.SH"
-        else:
-            ts_code = f"{code}.SZ"
+        ts_code = _ts_code_of(s)
     else:
         ts_code = s
 
@@ -202,7 +222,7 @@ class OpenBBAdapter(OfflineDataSourceAdapter):
                 pro = ts.pro_api()
                 df = pro.stock_basic(list_status="L", fields="ts_code,name,area,industry,market,list_date")
                 df = df.rename(columns={"ts_code": "symbol"})
-                df["code"] = df["symbol"].str.split(".").str[0]
+                df["code"] = df["symbol"].apply(lambda s: StockCodeUtil.split_suffix(s)[0] or s)
                 df["exchange"] = "A"
                 df["is_active"] = True
                 df["delist_date"] = None
@@ -246,10 +266,10 @@ class OpenBBAdapter(OfflineDataSourceAdapter):
                 pro = ts.pro_api()
                 s = symbol.strip().upper()
                 if "." not in s:
-                    code = s.split(".")[0] if "." in s else s
-                    ts_code = f"{code}.SH" if code.startswith(("6", "688")) else f"{code}.SZ"
+                    ts_code = _ts_code_of(s)
                 else:
-                    ts_code = s
+                    # 后缀正典直传 tushare（外部 API 参数格式）；前缀/裸码输入先归一
+                    ts_code = s if StockCodeUtil.split_suffix(s)[1] and s[0].isdigit() else StockCodeUtil.normalize(s)
                 df = pro.income(ts_code=ts_code)
                 if df is not None and not df.empty:
                     df["symbol"] = symbol.upper()
@@ -263,14 +283,7 @@ class OpenBBAdapter(OfflineDataSourceAdapter):
         if _EASTMONEY_OK:
             try:
                 import requests as req
-                s = symbol.strip().upper()
-                if s.endswith(".SZ"):
-                    secid = f"0.{s.split('.')[0]}"
-                elif s.endswith(".SH"):
-                    secid = f"1.{s.split('.')[0]}"
-                else:
-                    code = s.split(".")[0] if "." in s else s
-                    secid = f"1.{code}" if code.startswith(("6", "688")) else f"0.{code}"
+                secid = _secid_of(symbol)
 
                 url = "https://push2.eastmoney.com/api/qt/stock/get"
                 params = {
@@ -298,14 +311,7 @@ class OpenBBAdapter(OfflineDataSourceAdapter):
         if _EASTMONEY_OK:
             try:
                 import requests as req
-                s = symbol.strip().upper()
-                if s.endswith(".SZ"):
-                    secid = f"0.{s.split('.')[0]}"
-                elif s.endswith(".SH"):
-                    secid = f"1.{s.split('.')[0]}"
-                else:
-                    code = s.split(".")[0] if "." in s else s
-                    secid = f"1.{code}" if code.startswith(("6", "688")) else f"0.{code}"
+                secid = _secid_of(symbol)
 
                 url = "https://push2.eastmoney.com/api/qt/stock/get"
                 params = {"secid": secid, "fields": "f127,f128", "ut": "fa5fd1943c7b386f172d6893dbbd5d51"}
@@ -328,11 +334,7 @@ class OpenBBAdapter(OfflineDataSourceAdapter):
                 import requests as req
                 url = "https://np-anotice-eastmoney.com/api/security/ann"
                 params = {"sr": "-1", "page_size": "20", "page_index": "1", "ann_type": "SHA,CYB,SZA,SHE,NSE", "client_source": "web"}
-                s = symbol.strip().upper()
-                if s.endswith(".SZ"):
-                    params["stock"] = f"0.{s.split('.')[0]}"
-                elif s.endswith(".SH"):
-                    params["stock"] = f"1.{s.split('.')[0]}"
+                params["stock"] = _secid_of(symbol)
                 resp = req.get(url, params=params, timeout=10)
                 data = resp.json()
                 if data.get("data") and data["data"].get("list"):
@@ -354,14 +356,7 @@ class OpenBBAdapter(OfflineDataSourceAdapter):
         if _EASTMONEY_OK:
             try:
                 import requests as req
-                s = symbol.strip().upper()
-                if s.endswith(".SZ"):
-                    secid = f"0.{s.split('.')[0]}"
-                elif s.endswith(".SH"):
-                    secid = f"1.{s.split('.')[0]}"
-                else:
-                    code = s.split(".")[0] if "." in s else s
-                    secid = f"1.{code}" if code.startswith(("6", "688")) else f"0.{code}"
+                secid = _secid_of(symbol)
 
                 url = "https://push2.eastmoney.com/api/qt/stock/get"
                 params = {

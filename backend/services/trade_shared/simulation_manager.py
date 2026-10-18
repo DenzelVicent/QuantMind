@@ -766,8 +766,8 @@ return 0
                     except Exception:
                         continue
                     # 非 CN 市场的成交不计入 CN 账户（分市场键隔离）
-                    suffix = prefix[2:] if len(prefix) > 2 else prefix
-                    is_cn = prefix[:2] in {"SH", "SZ", "BJ"} and len(suffix) == 6
+                    mkt, suffix = StockCodeUtil.split_prefix(prefix)
+                    is_cn = mkt in {"SH", "SZ", "BJ"} and len(suffix) == 6
                     if (market_norm == "CN") != bool(is_cn):
                         continue
                     qty = float(quantity or 0)
@@ -836,7 +836,7 @@ return 0
                     sym = key.split("::", 1)[0]
                     last_px = 0.0
                     try:
-                        for cand in (sym, StockCodeUtil.to_prefix(sym)):
+                        for cand in (StockCodeUtil.to_suffix(sym), StockCodeUtil.to_prefix(sym)):
                             r = (
                                 await session.execute(
                                     _text(

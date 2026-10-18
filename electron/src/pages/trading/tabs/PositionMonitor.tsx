@@ -7,6 +7,7 @@ import { marketDataService } from '../../../services/marketDataService';
 import { websocketService, MessageType } from '../../../services/websocketService';
 import { buildNormalizedHoldings, extractPositionCodes, getPositionSummary, NormalizedHolding } from '../utils/positionMetrics';
 import PositionOverview from '../components/PositionOverview';
+import { normalizeSymbol } from '../../../utils/portfolioUtils';
 
 interface PositionMonitorProps {
     userId: string;
@@ -92,7 +93,7 @@ const PositionMonitor: React.FC<PositionMonitorProps> = ({ userId: _userId, isAc
         if (!isActive) return;
         const handler = (data: unknown) => {
             const msg = data as LiveQuote;
-            const code = String(msg?.stock_code || '').toUpperCase();
+            const code = normalizeSymbol(String(msg?.stock_code || ''));
             const price = Number(msg?.data?.price);
             if (!code || !Number.isFinite(price) || price <= 0) return;
             const next = { ...livePricesRef.current, [code]: price };

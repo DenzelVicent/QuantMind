@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy import and_, select
@@ -150,7 +150,18 @@ async def dispatch_internal_strategy_order(
             combined_remarks = dup_marker
             if original_remarks and original_remarks != dup_marker:
                 combined_remarks = f"{dup_marker} {original_remarks}"[:500]
-            sim_order_type = "limit" if price > 0 else "market"
+            # 显式市价单可能携带预案参考价，不能据此改成限价单。
+            # 未传类型的旧调用方仍保留按价格推断的兼容行为。
+            sim_order_type = (
+                order_type_raw.lower()
+                if order_data.get("order_type")
+                else ("limit" if price > 0 else "market")
+            )
+            if sim_order_type not in {"market", "limit"}:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"invalid simulation order_type: {order_type_raw}",
+                )
             trigger_source = "manual"
             if str(client_order_id or "").startswith("manual-"):
                 trigger_source = "manual"
@@ -166,7 +177,7 @@ async def dispatch_internal_strategy_order(
                 side=side_raw.lower(),
                 quantity=quantity,
                 order_type=sim_order_type,
-                price=price if price > 0 else None,
+                price=price if sim_order_type == "limit" and price > 0 else None,
                 portfolio_id=0,
                 strategy_id=strategy_id_val,
                 trade_action=trade_action_raw,

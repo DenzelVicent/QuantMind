@@ -120,21 +120,26 @@ async def _load_signal_day(
 async def _load_stock_names(
     symbols: list[str],
 ) -> dict[str, str]:
-    """批量查股票名称（stock_daily_latest.stock_name，symbol 前缀格式）。"""
+    """批量查股票名称（stock_daily_latest.stock_name；suffix 优先、老 prefix 兜底）。"""
     if not symbols:
         return {}
-    prefix_map: dict[str, str] = {}
+    key_map: dict[str, str] = {}
     for s in symbols:
         try:
-            prefix_map[StockCodeUtil.to_prefix(s)] = s
+            sfx = StockCodeUtil.normalize(s)
+            pfx = StockCodeUtil.to_prefix(s)
+            if sfx:
+                key_map.setdefault(sfx, s)
+            if pfx:
+                key_map.setdefault(pfx, s)
         except Exception:
             continue
-    if not prefix_map:
+    if not key_map:
         return {}
 
     result_map: dict[str, str] = {}
     async with get_session(read_only=True) as session:
-        for chunk in _chunks(list(prefix_map.keys()), 500):
+        for chunk in _chunks(list(key_map.keys()), 500):
             q = text(
                 """
                 SELECT DISTINCT ON (symbol) symbol, stock_name
@@ -146,10 +151,10 @@ async def _load_stock_names(
             )
             res = await session.execute(q, {"codes": chunk})
             for row in res.mappings():
-                prefix = str(row["symbol"] or "").strip().upper()
-                suffix = prefix_map.get(prefix)
-                if suffix:
-                    result_map[suffix] = str(row["stock_name"] or "")
+                sym = str(row["symbol"] or "").strip().upper()
+                orig = key_map.get(sym)
+                if orig:
+                    result_map[orig] = str(row["stock_name"] or "")
     return result_map
 
 
@@ -194,7 +199,17 @@ async def _load_price_flags(
     """
     if not symbols:
         return {}
-    normalized = {StockCodeUtil.to_prefix(s): s for s in symbols}
+    normalized: dict[str, str] = {}
+    for s in symbols:
+        try:
+            sfx = StockCodeUtil.normalize(s)
+            pfx = StockCodeUtil.to_prefix(s)
+            if sfx:
+                normalized.setdefault(sfx, s)
+            if pfx:
+                normalized.setdefault(pfx, s)
+        except Exception:
+            continue
     flags: dict[str, dict[str, Any]] = {}
     d_param = date.fromisoformat(trade_date) if trade_date else None
     if d_param is None:
@@ -215,11 +230,11 @@ async def _load_price_flags(
             res = await session.execute(q, {"codes": chunk, "d": d_param})
             for row in res.mappings():
                 sym = str(row["symbol"] or "").strip().upper()
-                suffix = normalized.get(sym)
-                if suffix is None or suffix in seen:
+                orig = normalized.get(sym)
+                if orig is None or orig in seen:
                     continue
-                seen.add(suffix)
-                flags[suffix] = {
+                seen.add(orig)
+                flags[orig] = {
                     "pct_change": float(row["pct_change"]) if row["pct_change"] is not None else None,
                     "is_st": int(row["is_st"] or 0),
                 }
@@ -447,12 +462,18 @@ def _top_stock_by_industry(
 
 
 def _is_main_board_code(symbol: str) -> bool:
-    s = symbol.split(".")[0] if "." in symbol else symbol
+    from backend.shared.stock_utils import StockCodeUtil
+
+    code, _ = StockCodeUtil.split_suffix(symbol)
+    s = code or symbol
     return s.startswith(("600", "601", "603", "605", "000", "001", "002"))
 
 
 def _is_star_market_code(symbol: str) -> bool:
-    s = symbol.split(".")[0] if "." in symbol else symbol
+    from backend.shared.stock_utils import StockCodeUtil
+
+    code, _ = StockCodeUtil.split_suffix(symbol)
+    s = code or symbol
     return s.startswith(("688", "300", "301"))
 
 
@@ -478,12 +499,15 @@ def _cap_bucket(total_mv: float | None) -> str:
 
 def _board_type(symbol: str) -> str:
     """板块类型：沪深主板 / 创业板 / 科创板 / 北交所 / 其他。"""
-    s = symbol.split(".")[0] if "." in symbol else symbol
+    from backend.shared.stock_utils import StockCodeUtil
+
+    code, _ = StockCodeUtil.split_suffix(symbol)
+    s = code or symbol
     if s.startswith("688"):
         return "科创板"
     if s.startswith(("300", "301")):
         return "创业板"
-    if s.startswith(("8", "4", "92")) and len(s) == 6 and not s.startswith(("00", "30", "60")):
+    if len(s) == 6 and not s.startswith(("00", "30", "60")):
         # 北交所：43/83/87/88/92 开头
         if s.startswith(("43", "83", "87", "88", "92")):
             return "北交所"
@@ -530,7 +554,7 @@ _CAP_CACHE_TTL = 600.0  # 10 分钟
 
 
 async def _load_cap_snapshot() -> dict[str, float | None]:
-    """加载全表最新交易日的市值快照（prefix symbol → 市值元），带缓存。"""
+    """加载全表最新交易日的市值快照（DB symbol 原样 → 市值元，新 suffix / 老 prefix 双口径），带缓存。"""
     global _cap_cache, _cap_cache_ts
     if _cap_cache and (_now() - _cap_cache_ts) < _CAP_CACHE_TTL:
         return _cap_cache
@@ -566,20 +590,30 @@ async def _load_cap_and_name(
 ) -> tuple[dict[str, float | None], dict[str, str]]:
     """批量加载市值(元)和股票名称。
 
-    市值: stock_daily_latest.total_mv（prefix 格式 SH600172，最新交易日快照，带缓存）
+    市值: stock_daily_latest.total_mv（新写 suffix、老行为 prefix，双口径快照，最新交易日，带缓存）
     名称: stocks.name（suffix 格式 600172.SH）
-    返回 ({suffix_symbol: total_mv}, {suffix_symbol: name})
+    返回 ({传入symbol: total_mv}, {传入symbol: name})
     """
     caps: dict[str, float | None] = {}
     names: dict[str, str] = {}
     if not symbols:
         return caps, names
 
-    prefix_map = {StockCodeUtil.to_prefix(s): s for s in symbols}
+    key_map: dict[str, str] = {}
+    for s in symbols:
+        try:
+            sfx = StockCodeUtil.normalize(s)
+            pfx = StockCodeUtil.to_prefix(s)
+            if sfx:
+                key_map.setdefault(sfx, s)
+            if pfx:
+                key_map.setdefault(pfx, s)
+        except Exception:
+            continue
     snapshot = await _load_cap_snapshot()
-    for prefix, suffix in prefix_map.items():
-        if prefix in snapshot:
-            caps[suffix] = snapshot[prefix]
+    for key, orig in key_map.items():
+        if key in snapshot and orig not in caps:
+            caps[orig] = snapshot[key]
 
     # 名称（suffix 格式）
     suffix_list = [s for s in symbols if "." in s or len(s) >= 6]
@@ -1007,7 +1041,7 @@ async def _run_score_calibration(
             sorted_items = sorted(day_items, key=lambda x: -x["score"])
             total = len(sorted_items)
             for rank_i, it in enumerate(sorted_items):
-                suffix = StockCodeUtil.to_suffix(it["symbol"])
+                suffix = StockCodeUtil.normalize(it["symbol"])
                 prefix = StockCodeUtil.to_prefix(it["symbol"])
                 try:
                     c0 = close_pivot.at[suffix, d]
@@ -1030,7 +1064,7 @@ async def _run_score_calibration(
                     rets[h] = (float(c1) / float(c0) - 1.0) * 100.0
                 if not rets:
                     continue
-                cap = _cap_bucket(caps_snapshot.get(prefix))
+                cap = _cap_bucket(caps_snapshot.get(suffix, caps_snapshot.get(prefix)))
                 board = _board_type(suffix)
                 _dims = symbol_dims.get(suffix, {})
                 records.append({

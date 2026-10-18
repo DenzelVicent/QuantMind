@@ -20,8 +20,55 @@ from backend.services.live_trading.services.manual_execution_service import (
     manual_execution_service,
 )
 from backend.services.simulation.services.simulation_hosted_scheduler import (
+    hosted_trade_enabled,
     run_simulation_cycle_for_active,
 )
+
+
+def _build_next_trigger(active_live_cfg: dict | None, started_at_raw: object) -> dict | None:
+    """由托管配置算下次调仓窗口（与 SimulationHostedScheduler 同口径）。
+
+    仅 SIMULATION 托管有意义；算不出时返回 None，前端回退原“今日暂未触发”文案。
+    """
+    if not isinstance(active_live_cfg, dict):
+        return None
+    try:
+        from backend.services.simulation.services.simulation_hosted_scheduler import (
+            _next_scheduled_trigger,
+            _normalize_live_trade_config,
+            _parse_started_at,
+            hosted_cycle_ready,
+        )
+        from datetime import datetime, timedelta
+        from zoneinfo import ZoneInfo
+
+        live_cfg = _normalize_live_trade_config(active_live_cfg)
+        started_day = _parse_started_at(started_at_raw)
+        now = datetime.now(ZoneInfo("Asia/Shanghai"))
+        # SELL-only 窗引擎会跳过（卖买原子轮只在 BUY/ALL 跑），展示时顺延到
+        # 真正执行的窗口，避免用户在 SELL 窗看到“计划”却无成交。
+        for _ in range(3):
+            nxt = _next_scheduled_trigger(
+                now=now,
+                live_trade_config=live_cfg,
+                started_day=started_day,
+            )
+            if nxt is None or hosted_cycle_ready(nxt.phase):
+                break
+            now = nxt.window_end_at + timedelta(seconds=1)
+    except Exception as exc:  # noqa: BLE001 - 排期计算永不阻断 status
+        logger.warning("status next_trigger 计算失败: %s", exc)
+        return None
+    if nxt is None:
+        return None
+    return {
+        "phase": nxt.phase,
+        "trade_date": nxt.trade_date,
+        "target_at": nxt.target_at.isoformat(),
+        "window_start_at": nxt.window_start_at.isoformat(),
+        "window_end_at": nxt.window_end_at.isoformat(),
+        "reason": nxt.reason,
+    }
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -411,7 +458,9 @@ async def start_trading(
         # 无可用推理时跳过（不阻断启动），等下一轮推理就绪后由托管调度器自然补跑。
         bootstrap_result = None
         bootstrap_skipped_reason = None
-        if mode == "SIMULATION" and trading_permission != "blocked":
+        if mode == "SIMULATION" and hosted_trade_enabled(
+            {"trading_permission": trading_permission}, exec_config, live_config
+        ):
             if os.getenv("SIM_BOOTSTRAP_FIRST_RUN_ENABLED", "true").strip().lower() == "true":
                 try:
                     bootstrap_lock_key = (
@@ -431,6 +480,11 @@ async def start_trading(
                                 strategy_id=strategy_id or strategy_name,
                                 live_trade_config=live_config,
                                 run_id=bootstrap_task_id,
+                                strategy_name=str(strategy_name or strategy_id),
+                                trigger_context={
+                                    "run_id": bootstrap_task_id,
+                                    "trigger": "bootstrap_first_run",
+                                },
                             )
                             if bootstrap_result.get("status") == "failed":
                                 bootstrap_skipped_reason = str(
@@ -548,7 +602,9 @@ async def start_trading(
             "trading_permission": trading_permission,
             "signal_readiness": signal_readiness,
             "bootstrap": {
-                "attempted": mode == "SIMULATION" and trading_permission != "blocked",
+                "attempted": mode == "SIMULATION" and hosted_trade_enabled(
+                    {"trading_permission": trading_permission}, exec_config, live_config
+                ),
                 "task_id": (bootstrap_result or {}).get("task_id") if isinstance(bootstrap_result, dict) else None,
                 "status": (bootstrap_result or {}).get("status") if isinstance(bootstrap_result, dict) else None,
                 "filled_count": (bootstrap_result or {}).get("filled_count") if isinstance(bootstrap_result, dict) else None,
@@ -745,6 +801,7 @@ async def get_status(
     current_mode = "SIMULATION"
     active_exec_config = None
     active_live_trade_config = None
+    active_started_at = None
     trading_permission = "trade_enabled"
     signal_readiness = None
     if active_strat_raw:
@@ -772,6 +829,8 @@ async def get_status(
             active_exec_config = active_data.get("execution_config")
         if isinstance(active_data.get("live_trade_config"), dict):
             active_live_trade_config = active_data.get("live_trade_config")
+        if isinstance(active_data.get("started_at"), str):
+            active_started_at = active_data.get("started_at")
         if active_data.get("trading_permission"):
             trading_permission = str(active_data.get("trading_permission"))
         if isinstance(active_data.get("signal_readiness"), dict):
@@ -827,13 +886,31 @@ async def get_status(
         resolved_tenant_id,
         resolved_user_id,
     )
+    active_runtime_id = (
+        active_data.get("run_id")
+        if "active_data" in locals() and isinstance(active_data, dict)
+        else None
+    )
+    # 模拟盘与实盘共用 StrategyConsole 的「任务日志」入口：模拟模式优先取
+    # simulation 托管任务（task_type=hosted_sim），没有再回落实盘托管任务。
     latest_hosted_task = await manual_execution_service.get_latest_hosted_task(
         tenant_id=resolved_tenant_id,
         user_id=resolved_user_id,
-        active_runtime_id=active_data.get("run_id")
-        if "active_data" in locals() and isinstance(active_data, dict)
-        else None,
+        active_runtime_id=active_runtime_id,
+        task_type="hosted_sim" if current_mode == "SIMULATION" else "hosted",
     )
+    if latest_hosted_task is None and current_mode == "SIMULATION":
+        latest_hosted_task = await manual_execution_service.get_latest_hosted_task(
+            tenant_id=resolved_tenant_id,
+            user_id=resolved_user_id,
+            active_runtime_id=active_runtime_id,
+            task_type="hosted",
+        )
+
+    # 下次托管窗口（今日无任务时前端“下个交易日计划”展示未来排期用）
+    next_trigger = None
+    if current_mode == "SIMULATION" and active_live_trade_config is not None:
+        next_trigger = _build_next_trigger(active_live_trade_config, active_started_at)
 
     # 获取投资组合快照，优先尊重请求的 trading_mode
     lookup_mode = trading_mode or current_mode
@@ -886,6 +963,7 @@ async def get_status(
                 "latest_hosted_task": latest_hosted_task,
                 "latest_signal_run_id": latest_signal_run_id,
                 "signal_source_status": signal_source_status,
+                "next_trigger": next_trigger,
             }
 
         return {
@@ -903,6 +981,7 @@ async def get_status(
             "signal_source_status": signal_source_status,
             "trading_permission": trading_permission,
             "signal_readiness": signal_readiness,
+            "next_trigger": next_trigger,
         }
 
     # No active strategy
@@ -921,6 +1000,7 @@ async def get_status(
         "signal_source_status": signal_source_status,
         "trading_permission": trading_permission,
         "signal_readiness": signal_readiness,
+        "next_trigger": next_trigger,
     }
 
 

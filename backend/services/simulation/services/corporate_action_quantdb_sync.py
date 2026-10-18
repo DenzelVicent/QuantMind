@@ -79,7 +79,7 @@ def _collect_window_events(
         df = df[(df["time"] >= pd.Timestamp(start)) & (df["time"] <= pd.Timestamp(end))]
         if df.empty:
             continue
-        symbol = StockCodeUtil.to_prefix(f.stem)
+        symbol = StockCodeUtil.normalize(f.stem)
         for _, row in df.iterrows():
             interest = _to_float(row.get("interest"))
             bonus = _to_float(row.get("stockBonus"))

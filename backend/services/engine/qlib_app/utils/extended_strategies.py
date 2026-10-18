@@ -27,6 +27,22 @@ from backend.services.engine.qlib_app.utils.structured_logger import StructuredT
 logger = logging.getLogger(__name__)
 
 
+def _qlib_benchmark(benchmark: Any) -> str:
+    """策略 benchmark（后缀正典）→ Qlib D.features 可用的指数代码。
+
+    经 benchmark_symbol 归一为小写 qlib 形（000300.SH -> sh000300），
+    兼容历史前缀/别名输入；未知格式原样返回。
+    """
+    try:
+        from backend.services.engine.qlib_app.utils.benchmark_symbol import (
+            normalize_benchmark_symbol,
+        )
+
+        return normalize_benchmark_symbol(benchmark)
+    except Exception:
+        return str(benchmark or "sh000300")
+
+
 # ---------------------------------------------------------------------------
 # 两融标的池加载（模块级缓存，仅加载一次）
 # ---------------------------------------------------------------------------
@@ -1040,7 +1056,7 @@ class RedisCrashBuyDipStrategy(DynamicRiskMixin, WeightStrategyBase, RedisLogger
         # 100 点 ≈ 沪深 300 的 2.5%~3%，与 crash_threshold_pct 量级一致。
         # 历史默认值 1000 会把阈值放大约 1000 倍（-0.1 点即触发），等于每个下跌日都算暴跌。
         self.index_scale = float(kwargs.pop("index_scale", 1.0))
-        self.benchmark = kwargs.pop("benchmark", "SH000300")
+        self.benchmark = kwargs.pop("benchmark", "000300.SH")
         self.trend_window = int(kwargs.pop("trend_window", 20))
         self.ma_fast = int(kwargs.pop("ma_fast", 5))
         self.ma_slow = int(kwargs.pop("ma_slow", 20))
@@ -1109,7 +1125,7 @@ class RedisCrashBuyDipStrategy(DynamicRiskMixin, WeightStrategyBase, RedisLogger
             return
 
         try:
-            idx = D.features([self.benchmark], ["$close", "$change"], start_time=start_str, end_time=end_str).copy()
+            idx = D.features([_qlib_benchmark(self.benchmark)], ["$close", "$change"], start_time=start_str, end_time=end_str).copy()
             # 指数在 qlib cn_data 里 $change 常常是 NaN（实测 SH000300 2024 全年 NaN），
             # 只看 $change 会让「暴跌」判断永不触发；用收盘价自算涨跌幅兜底。
             pct_change = idx["$change"].where(idx["$change"].notna(), idx["$close"].pct_change())

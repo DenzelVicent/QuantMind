@@ -20,6 +20,7 @@ import { listUserPoolSymbols, USER_POOL_FAVORITES } from '../../../services/user
 import { useAppDispatch, useAppSelector } from '../../../store';
 import { selectCurrentMarket, setMarket, AppMarket } from '../../../store/slices/uiSlice';
 import { isMarketEnabled } from '../../../config/marketFlags';
+import { toSuffixCode } from '../../../utils/portfolioUtils';
 
 const { Title, Text } = Typography;
 
@@ -68,7 +69,8 @@ const DashboardPage: React.FC = () => {
             const symbols = await listUserPoolSymbols(USER_POOL_FAVORITES);
             setWatchlist(
                 symbols.map((symbol) => ({
-                    symbol: String(symbol).toUpperCase(),
+                    // 入库即转后缀式，与后端 StockCodeUtil.normalize 同口径
+                    symbol: toSuffixCode(String(symbol)),
                     stockName: null,
                     tags: [],
                 })),
@@ -150,8 +152,13 @@ const DashboardPage: React.FC = () => {
         if (/^0\d{4}$/.test(s.replace(/\.\w+$/, ''))) return { symbol: `${s.replace(/\.\w+$/, '')}.HK`, market: 'HK' };
         // .SH/.SZ/.BJ suffix already in correct format
         if (/\.(SH|SZ|BJ)$/.test(s)) return { symbol: s, market: 'CN' };
-        // 6-digit A-stock code without suffix
-        if (/^\d{6}$/.test(s)) return { symbol: `${s}.SZ`, market: 'CN' };
+        // 6-digit A-stock code without suffix（号段口径以中枢 toSuffixCode 为准，
+        // 60/68/90→SH、00/30/20→SZ、43/83/87/88/92→BJ；未知号段原样返回）
+        if (/^\d{6}$/.test(s)) {
+            const suffixed = toSuffixCode(s);
+            if (/\.(SH|SZ|BJ)$/.test(suffixed)) return { symbol: suffixed, market: 'CN' };
+            return { symbol: s, market: 'CN' };
+        }
         // Crypto: USDT/USDC suffix or high-entropy alphanumeric ticker
         if (/USDT$|USDC$|^BTC|^ETH|^BNB|^SOL|^XRP|^DOGE/.test(s)) return { symbol: s, market: 'CRYPTO' };
         // Futures: .CN/.FUT/.CNF suffix
@@ -261,17 +268,17 @@ const DashboardPage: React.FC = () => {
                                         cursor: 'pointer',
                                         borderRadius: 6,
                                         marginBottom: 2,
-                                        background: normalizeSymbol(item.symbol).symbol === symbol ? '#e0f2fe' : 'transparent',
-                                        border: normalizeSymbol(item.symbol).symbol === symbol ? '1px solid #7dd3fc' : '1px solid transparent',
+                                        background: normalizeSymbol(item.symbol).symbol === normalizeSymbol(symbol).symbol ? '#e0f2fe' : 'transparent',
+                                        border: normalizeSymbol(item.symbol).symbol === normalizeSymbol(symbol).symbol ? '1px solid #7dd3fc' : '1px solid transparent',
                                         transition: 'all 0.2s',
                                     }}
                                     onMouseEnter={(e) => {
-                                        if (symbol !== item.symbol) {
+                                        if (normalizeSymbol(symbol).symbol !== normalizeSymbol(item.symbol).symbol) {
                                             e.currentTarget.style.background = '#f8fafc';
                                         }
                                     }}
                                     onMouseLeave={(e) => {
-                                        if (symbol !== item.symbol) {
+                                        if (normalizeSymbol(symbol).symbol !== normalizeSymbol(item.symbol).symbol) {
                                             e.currentTarget.style.background = 'transparent';
                                         }
                                     }}

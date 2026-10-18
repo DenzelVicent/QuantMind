@@ -2,14 +2,25 @@ import re
 from typing import Optional
 
 class StockCodeUtil:
-    """股票代码标准化工具类（分层口径，禁止跨层混用）。
+    """股票代码标准化工具类（QuantDB 后缀口径为全系统唯一通用格式）。
 
-    - QuantDB parquet / Qlib / 行情数据层: suffix 型 600036.SH
-      （Qlib 桥接用全小写 sh600036，见 to_qlib）
-    - PG 数据库字段 / Redis 键 / 前端 / Strategy Lab SDK / 大多数 API: prefix 型 SH600036
-    - 层边界必须经本工具显式转换（to_suffix / to_prefix / to_qlib），禁止散落手写切片；
+    - 通用格式（后端 / 前端 / PG / Redis / API / 行情）: suffix 型 600036.SH，
+      个股与指数统一（SH000300 -> 000300.SH）。新代码一律用 normalize()。
+    - 唯一例外：Qlib 桥接用全小写 sh600036（to_qlib），仅在进出 Qlib 层边界转换。
+    - to_prefix() 为过渡期兼容垫片（读老数据/老键时用），新写入禁止使用，
+      待迁移脚本执行完毕后统一删除。
+    - 层边界必须经本工具显式转换，禁止散落手写切片；
       suffix 与 prefix 混用查询会静默查空。
     """
+
+    @staticmethod
+    def normalize(code: str) -> str:
+        """全系统正典归一化：任何输入 -> 后缀格式 600036.SH。
+
+        等价于 to_suffix()，语义上是“唯一通用格式”入口。
+        未知格式（港股/美股/指数期货等）原样返回（去空格大写），不硬判。
+        """
+        return StockCodeUtil.to_suffix(code)
 
     @staticmethod
     def to_suffix(code: str) -> str:
@@ -52,12 +63,9 @@ class StockCodeUtil:
 
     @staticmethod
     def to_prefix(code: str) -> str:
-        """转换为 prefix 格式 SH600000（PG / Redis / 前端 / API 层口径）。
+        """转换为 prefix 格式 SH600000（过渡期兼容垫片，仅用于读老数据/老键）。
 
-        Examples:
-            - '600000.SH' -> 'SH600000'
-            - 'sh600000' -> 'SH600000'
-            - '600000' -> 'SH600000' (自动识别交易所)
+        新写入一律用 normalize()/to_suffix()。待后缀迁移脚本全量执行后删除。
         """
         if not code:
             return ""
@@ -137,6 +145,44 @@ class StockCodeUtil:
         return code.lower()
 
     @staticmethod
+    def split_prefix(code: str) -> tuple[str, str]:
+        """拆分 prefix 格式为 (市场, 裸码)，替代散落的 s[:2]/s[2:] 切片。
+
+        非标准输入返回 ("", 原值去空格后大写)，调用方自行决定回退策略，
+        禁止再手写 s[:2]/s[2:]。
+
+        Examples:
+            - 'SH600000' -> ('SH', '600000')
+            - '600000.SH' -> ('SH', '600000')
+            - '600000' -> ('SH', '600000') (自动识别)
+        """
+        if not code:
+            return ("", "")
+        prefix = StockCodeUtil.to_prefix(code)
+        m = re.match(r'^(SH|SZ|BJ)(\d{6})$', prefix)
+        if m:
+            return (m.group(1), m.group(2))
+        return ("", str(code).strip().upper())
+
+    @staticmethod
+    def split_suffix(code: str) -> tuple[str, str]:
+        """拆分 suffix 格式为 (裸码, 市场)，替代散落的 split('.') 手写切片。
+
+        非标准输入返回 ("", 原值去空格后大写)，调用方自行决定回退策略。
+
+        Examples:
+            - '600000.SH' -> ('600000', 'SH')
+            - 'SH600000' -> ('600000', 'SH')
+        """
+        if not code:
+            return ("", "")
+        suffix = StockCodeUtil.to_suffix(code)
+        m = re.match(r'^(\d{6})\.(SH|SZ|BJ)$', suffix)
+        if m:
+            return (m.group(1), m.group(2))
+        return ("", str(code).strip().upper())
+
+    @staticmethod
     def normalize_list(codes: list[str]) -> list[str]:
-        """批量标准化为 suffix 格式（QuantDB 层口径）"""
+        """批量标准化为 suffix 格式（全系统通用口径）"""
         return [StockCodeUtil.to_suffix(c) for c in codes if c]

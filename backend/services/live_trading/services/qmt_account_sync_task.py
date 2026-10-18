@@ -119,15 +119,21 @@ class QmtAccountSyncService:
             batch_quantdb_last_close,
             [str(p.get("symbol") or "") for p in positions_raw],
         )
+        try:
+            from backend.shared.stock_utils import StockCodeUtil as _SCU
+        except Exception:  # noqa: BLE001
+            _SCU = None  # type: ignore
         positions: list[dict[str, Any]] = []
         for item in positions_raw:
-            symbol = str(item.get("symbol") or "").strip()
-            if not symbol:
+            raw_symbol = str(item.get("symbol") or "").strip()
+            if not raw_symbol:
                 continue
+            # 落库写后缀正典（real_account_snapshots.payload_json.positions[].symbol）
+            symbol = _SCU.to_suffix(raw_symbol) if _SCU else raw_symbol.upper()
             volume = float(item.get("volume") or 0)
             price = float(item.get("market_value") or 0) / volume if volume > 0 else 0.0
             if price <= 0:
-                price = price_map.get(symbol, 0.0)
+                price = price_map.get(symbol, price_map.get(raw_symbol, 0.0))
             positions.append(
                 {
                     "symbol": symbol,

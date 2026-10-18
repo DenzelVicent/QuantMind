@@ -31,6 +31,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from backend.shared.stock_utils import StockCodeUtil
+
 DEFAULT_EVENTS = "/data/quantdb/3_financial_data/dividend_factors"
 
 DROP_RATIO = 1.1  # “必然是除权日”的判定：裸价跌幅超过 1.1x 涨停幅度
@@ -51,7 +53,9 @@ def resolve_events_dir() -> Path:
 
 def board_limit(symbol: str) -> float:
     """涨跌停幅度：科创板/创业板 20%，北交所 30%，主板 10%（ST 更严，只会让判定更保守）。"""
-    num = symbol[2:] if symbol[:2].lower() in ("sh", "sz", "bj") else symbol
+    _, num = StockCodeUtil.split_prefix(symbol)
+    if not num:
+        num = symbol
     if num.startswith(("68", "30")):
         return 0.20
     if num.startswith(("8", "4", "92")):
@@ -61,9 +65,7 @@ def board_limit(symbol: str) -> float:
 
 def to_code(symbol: str) -> str:
     """qlib 前缀式 sh600036 -> 事件表文件名用的 600036.SH。"""
-    if len(symbol) > 2 and symbol[:2].lower() in ("sh", "sz", "bj"):
-        return f"{symbol[2:]}.{symbol[:2].upper()}"
-    return symbol
+    return StockCodeUtil.to_suffix(symbol)
 
 
 def load_events(events_dir: Path, code: str) -> pd.DataFrame | None:

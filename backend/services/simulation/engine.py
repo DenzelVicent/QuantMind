@@ -65,11 +65,29 @@ _STRATEGY_KWARG_KEYS = (
     "min_score",
     "max_position_pct",
     "lot_size",
+    "custom_weights",
+    "enable_min_score",
+    "renormalize_weights",
+    "deterministic_buy_order",
+    "force_exit_on_limit_down",
 )
 
 
+def _to_bool(value: Any, default: bool) -> bool:
+    """宽松布尔解析（前端可能传 "true"/1/True）。"""
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
 def _extract_strategy_config_kwargs(code_str: str) -> dict[str, Any]:
-    """从策略代码 STRATEGY_CONFIG.kwargs 提取选股参数（topk/n_drop 等）。"""
+    """从策略代码 STRATEGY_CONFIG.kwargs 提取选股参数（topk/n_drop 等）。
+
+    除白名单键外，``f_`` 前缀的基本面约束与 ``exclude_st`` 开关一并透出，
+    由下游 FundamentalAligner / ST 名单执行（与实盘 manual_execution 同口径）。
+    """
     import ast
 
     if not code_str or not str(code_str).strip():
@@ -95,7 +113,13 @@ def _extract_strategy_config_kwargs(code_str: str) -> dict[str, Any]:
         for key in _STRATEGY_KWARG_KEYS:
             if key in cfg and key not in merged:
                 merged[key] = cfg[key]
-        return {k: merged[k] for k in _STRATEGY_KWARG_KEYS if k in merged}
+        return {
+            key: merged[key]
+            for key in merged
+            if key in _STRATEGY_KWARG_KEYS
+            or key == "exclude_st"
+            or (isinstance(key, str) and key.startswith("f_"))
+        }
     return {}
 
 
@@ -115,6 +139,116 @@ class ExecutionReport:
     orders: list[dict[str, Any]] = field(default_factory=list)
     account_snapshot: dict[str, Any] = field(default_factory=dict)
     error: str | None = None
+    # 选股宇宙过滤审计（与实盘 manual_execution 的 raw/fundamental 计数对齐）
+    st_filtered_count: int = 0
+    fundamental_filtered_count: int = 0
+
+
+async def count_sim_orders_today(db: AsyncSession, tenant: str, uid_int: int) -> int:
+    """当日模拟单计数（排除已拒绝，与实盘口径对齐），失败返回 0。"""
+    try:
+        from datetime import datetime as _dt
+
+        from sqlalchemy import func, select
+
+        from backend.services.simulation.models.order import OrderStatus, SimOrder
+
+        today_start = _dt.combine(_dt.now().date(), _dt.min.time())
+        stmt = (
+            select(func.count(SimOrder.id))
+            .where(SimOrder.tenant_id == tenant)
+            .where(SimOrder.user_id == uid_int)
+            .where(SimOrder.created_at >= today_start)
+            .where(SimOrder.status != OrderStatus.REJECTED)
+        )
+        res = await db.execute(stmt)
+        return int(res.scalar() or 0)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("SimulationEngine: 当日订单计数失败, 按 0 处理: %s", exc)
+        return 0
+
+
+async def check_sim_order_gate(
+    db: AsyncSession,
+    redis,
+    *,
+    tenant_id: str,
+    user_id: object,
+    symbol: str,
+    quantity: float,
+    price: float | None,
+    market_str: str | None = None,
+) -> list[str]:
+    """手动下单 / 沙箱信号共用的模拟闸门检查，返回 violations（空=放行）。
+
+    与托管调仓（SimulationEngine.run_cycle）同一规则口径。市价单无价
+    格时算不出金额，只执行日笔数限制，其余 fail-open。永不抛异常。
+    """
+    try:
+        import os as _os
+
+        if _os.getenv("SIM_GATE_RISK_ENABLED", "true").strip().lower() in {
+            "0",
+            "false",
+            "no",
+            "off",
+        }:
+            return []
+
+        from backend.services.live_trading.services.risk_rule_types import (
+            GATE_RULE_TYPES,
+            rule_matches_market,
+            rule_matches_trading_mode,
+        )
+        from backend.services.live_trading.services.risk_service import RiskService
+        from backend.services.simulation.services.market_rules import (
+            infer_market_from_symbols,
+        )
+        from backend.services.simulation.services.simulation_manager import (
+            SimulationAccountManager,
+            canonical_sim_uid,
+        )
+
+        tenant = (tenant_id or "").strip() or "default"
+        uid_int = canonical_sim_uid(user_id)
+        mkt = market_str or infer_market_from_symbols([symbol]).value
+
+        rules = await RiskService(db, redis).get_applicable_rules(uid_int)
+        gate_rules = []
+        for rule in rules:
+            if str(getattr(rule, "rule_type", "")) not in GATE_RULE_TYPES:
+                continue
+            params = getattr(rule, "parameters", None) or {}
+            if not isinstance(params, dict):
+                continue
+            if not rule_matches_trading_mode(params.get("trading_mode"), "SIMULATION"):
+                continue
+            if not rule_matches_market(params.get("markets"), mkt):
+                continue
+            gate_rules.append(rule)
+        if not gate_rules:
+            return []
+
+        account = await SimulationAccountManager(redis).get_account(
+            user_id=uid_int, tenant_id=tenant, market=mkt
+        )
+        portfolio_value = float((account or {}).get("total_asset") or 0)
+        day_count = await count_sim_orders_today(db, tenant, uid_int)
+
+        order_value = float(quantity or 0) * float(price or 0)
+        if order_value <= 0:
+            # 市价无价单：金额类规则无法评估，只执行日笔数限制
+            gate_rules = [
+                r for r in gate_rules if str(getattr(r, "rule_type", "")) == "max_daily_trades"
+            ]
+            if not gate_rules:
+                return []
+        return RiskService.eval_gate_violations(
+            order_value, portfolio_value, day_count, gate_rules
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("SimulationEngine: 手动单闸门检查失败, fail-open: %s", exc)
+        return []
 
 
 class SimulationEngine:
@@ -352,7 +486,15 @@ class SimulationEngine:
                     )
                     return report
 
-                # 5. 调仓计算
+                # 5. 调仓计算（先过 ST + 基本面宇宙过滤，持仓 ST 经调仓差分自然卖出）
+                signals, st_dropped, fundamental_dropped = (
+                    await self._apply_universe_filters(
+                        signals, strategy_config, market=market
+                    )
+                )
+                report.signal_count = len(signals)
+                report.st_filtered_count = st_dropped
+                report.fundamental_filtered_count = fundamental_dropped
                 orders = self.rebalance_calculator.calculate(
                     signals=signals,
                     strategy=strategy_config,
@@ -368,6 +510,28 @@ class SimulationEngine:
                 if max_orders is not None and int(max_orders) > 0:
                     orders = self._truncate_orders(orders, int(max_orders))
                 report.order_count = len(orders)
+
+                # 闸门风控（管理后台 risk_rules）：规则只加载一次，逐单评估。
+                # SELL 同样受单笔上下限约束（与 RiskService 口径一致）。
+                market_str = str(getattr(market, "value", market) or "CN")
+                gate_rules: list = []
+                sim_day_count = 0
+                if self._sim_gate_enabled():
+                    gate_rules = await self._load_sim_gate_rules(
+                        db, canonical_sim_uid(uid), market_str
+                    )
+                    if gate_rules:
+                        sim_day_count = await self._sim_daily_order_count(
+                            db, tenant, canonical_sim_uid(uid)
+                        )
+                        logger.info(
+                            "SimulationEngine: 闸门风控生效 tenant=%s user=%s "
+                            "rules=%d day_count=%d",
+                            tenant,
+                            uid,
+                            len(gate_rules),
+                            sim_day_count,
+                        )
 
                 if not orders:
                     logger.info(
@@ -400,7 +564,17 @@ class SimulationEngine:
                                 live_ticks, order.symbol
                             ),
                             allow_stale_fill=stale_ok,
+                            gate_rules=gate_rules,
+                            portfolio_value=float(getattr(account, "total_asset", 0) or 0),
+                            daily_trade_count=sim_day_count,
                         )
+                        # 被闸门拦截的不计入当日笔数（与实盘排除 REJECTED 口径对齐），
+                        # 其余（成交/撮合失败）均计入，避免同轮内笔数限制被绕过。
+                        if not (
+                            not result.success
+                            and str(result.message or "").startswith("risk_blocked:")
+                        ):
+                            sim_day_count += 1
                     except Exception as exc:  # noqa: BLE001
                         failed_orders.append(str(order.symbol))
                         logger.exception(
@@ -479,6 +653,86 @@ class SimulationEngine:
             report.error = str(e)
             return report
 
+    async def _apply_universe_filters(
+        self,
+        signals: list[Any],
+        strategy: StrategyConfig,
+        market: Any = None,
+    ) -> tuple[list[Any], int, int]:
+        """选股宇宙过滤（模拟盘托管链路唯一入口）。
+
+        顺序：ST 剔除 → f_ 基本面约束（FundamentalAligner，按当日 features_daily
+        快照，250 天回看；与回测 recording_strategy、实盘 manual_execution 同口径）。
+        持仓中的 ST/不达标标的会被自然移出目标集，经调仓差分卖出。
+        数据缺失时两路均为 fail-open（不过滤），绝不清空组合。
+        返回 (过滤后信号, st 剔除数, 基本面剔除数)。
+        """
+        st_dropped = 0
+        fundamental_dropped = 0
+        if not signals:
+            return signals, 0, 0
+        constraints = dict(getattr(strategy, "fundamental_constraints", None) or {})
+        exclude_st = bool(getattr(strategy, "exclude_st", True))
+        if not constraints and not exclude_st:
+            return signals, 0, 0
+        market_value = str(getattr(market, "value", market) or "CN")
+
+        if exclude_st and market_value == "CN":
+            try:
+                from backend.services.simulation.services.local_market_data import (
+                    get_local_market_data,
+                )
+
+                market_data = get_local_market_data(market)
+                st_set = await asyncio.to_thread(market_data.st_symbols)
+            except Exception as exc:
+                logger.warning("SimulationEngine: ST 名单读取失败，本轮跳过 ST 过滤: %s", exc)
+                st_set = frozenset()
+            if st_set:
+                norm_st = {StockCodeUtil.normalize(str(s)) for s in st_set}
+                norm_st.discard("")
+                kept = [
+                    s
+                    for s in signals
+                    if StockCodeUtil.normalize(str(getattr(s, "symbol", ""))) not in norm_st
+                ]
+                st_dropped = len(signals) - len(kept)
+                if st_dropped:
+                    logger.info(
+                        "SimulationEngine: ST 过滤 %d → %d", len(signals), len(kept)
+                    )
+                signals = kept
+
+        if constraints and signals:
+            try:
+                from backend.shared.fundamental_aligner import fundamental_aligner
+
+                kept_symbols = await asyncio.to_thread(
+                    fundamental_aligner.filter_instruments,
+                    datetime.now().date(),
+                    [str(getattr(s, "symbol", "")) for s in signals],
+                    constraints,
+                )
+                norm_kept = {StockCodeUtil.normalize(str(s)) for s in kept_symbols}
+                kept = [
+                    s
+                    for s in signals
+                    if StockCodeUtil.normalize(str(getattr(s, "symbol", ""))) in norm_kept
+                ]
+                fundamental_dropped = len(signals) - len(kept)
+                if fundamental_dropped:
+                    logger.info(
+                        "SimulationEngine: 基本面过滤 %d → %d 约束=%s",
+                        len(signals),
+                        len(kept),
+                        sorted(constraints),
+                    )
+                signals = kept
+            except Exception as exc:
+                logger.warning("SimulationEngine: 基本面过滤失败，本轮跳过: %s", exc)
+
+        return signals, st_dropped, fundamental_dropped
+
     async def _load_strategy_config(
         self,
         db: AsyncSession,
@@ -502,11 +756,16 @@ class SimulationEngine:
         code_kwargs: dict[str, Any] = {}
 
         try:
-            # 尝试从策略存储服务加载
+            # 尝试从策略存储服务加载。注意身份口径：托管链路传的是运行时
+            # 补零 id（如 00000042），而策略按 JWT 原始 sub（如 42）归属存储；
+            # 直传补零 id 会使 _ensure_int_user_id 命中错误主键甚至串户，
+            # 策略查不到就静默回退默认（topk=10）。数字 id 一律去前导零。
+            raw_uid = str(user_id or "").strip()
+            storage_uid = str(int(raw_uid)) if raw_uid.isdigit() else raw_uid
             storage_svc = get_strategy_storage_service()
             strategy = await storage_svc.get(
-                strategy_id=int(strategy_id) if strategy_id.isdigit() else 0,
-                user_id=user_id,
+                strategy_id=int(strategy_id) if strategy_id.isdigit() else strategy_id,
+                user_id=storage_uid,
             )
 
             if strategy:
@@ -515,19 +774,56 @@ class SimulationEngine:
                 )
                 params = dict(strategy.get("parameters", {}) or {})
                 # 代码里写的 topk/n_drop 补进 parameters（parameters 显式值优先）
-                for key in ("topk", "n_drop", "rebalance_days", "weight_mode",
-                            "min_score", "max_position_pct", "lot_size"):
+                for key in _STRATEGY_KWARG_KEYS:
                     if key not in params and key in code_kwargs:
                         params[key] = code_kwargs[key]
+                # f_ 基本面约束与 exclude_st 开关同样透出（parameters 显式值优先）
+                for key, value in code_kwargs.items():
+                    if key not in params and (
+                        key == "exclude_st"
+                        or (isinstance(key, str) and key.startswith("f_"))
+                    ):
+                        params[key] = value
+                try:
+                    _weight_mode = WeightMode(params.get("weight_mode", "equal"))
+                except ValueError:
+                    # 单个非法值只回退该字段，不连累整组参数回默认
+                    logger.warning(
+                        "SimulationEngine: weight_mode 非法 %r, 回退 equal",
+                        params.get("weight_mode"),
+                    )
+                    _weight_mode = WeightMode.EQUAL
                 config = StrategyConfig(
                     topk=int(params.get("topk", 10)),
-                    weight_mode=WeightMode(params.get("weight_mode", "equal")),
+                    weight_mode=_weight_mode,
                     custom_weights=params.get("custom_weights", {}),
                     min_score=float(params.get("min_score", 0.0)),
                     max_position_pct=float(params.get("max_position_pct", 0.15)),
                     lot_size=int(params.get("lot_size", default_lot)),
                     n_drop=int(params.get("n_drop", 0) or 0),
                     rebalance_days=max(1, int(params.get("rebalance_days", 1) or 1)),
+                    enable_min_score=bool(params.get("enable_min_score", False)),
+                    renormalize_weights=bool(params.get("renormalize_weights", False)),
+                    deterministic_buy_order=bool(
+                        params.get("deterministic_buy_order", False)
+                    ),
+                    # 默认开启（与回放 day_runner 对齐）：剔除股跌停/无有效行情时
+                    # 也按持仓价兜底挂单，交由撮合层显式拒绝并留痕，避免
+                    # 「该割的割不掉」在计算阶段被静默丢弃（买卖对账依赖此兜底）。
+                    force_exit_on_limit_down=bool(
+                        params.get("force_exit_on_limit_down", True)
+                    ),
+                    # f_ 基本面约束（去前缀）+ ST 开关：调仓前由
+                    # _apply_universe_filters 经 FundamentalAligner / ST 名单执行。
+                    # 优先级 params_override > parameters > 代码 kwargs（沿用上文）。
+                    fundamental_constraints={
+                        key[2:]: value
+                        for key, value in params.items()
+                        if isinstance(key, str)
+                        and key.startswith("f_")
+                        and value is not None
+                    },
+                    exclude_st=_to_bool(params.get("exclude_st", True), True),
                 )
         except Exception as e:
             logger.warning("SimulationEngine: 加载策略配置失败 %s, 使用默认配置", e)
@@ -550,6 +846,20 @@ class SimulationEngine:
                 config.n_drop = int(params_override["n_drop"])
             if params_override.get("rebalance_days") is not None:
                 config.rebalance_days = max(1, int(params_override["rebalance_days"]))
+            for flag in (
+                "enable_min_score",
+                "renormalize_weights",
+                "deterministic_buy_order",
+                "force_exit_on_limit_down",
+            ):
+                if params_override.get(flag) is not None:
+                    setattr(config, flag, bool(params_override[flag]))
+            # f_ 基本面约束与 exclude_st 同样接受前端覆盖（最高优先级）
+            for key, value in params_override.items():
+                if isinstance(key, str) and key.startswith("f_") and value is not None:
+                    config.fundamental_constraints[key[2:]] = value
+            if params_override.get("exclude_st") is not None:
+                config.exclude_st = _to_bool(params_override["exclude_st"], True)
             logger.info(
                 "SimulationEngine: 应用参数覆盖, topk=%d n_drop=%d weight_mode=%s",
                 config.topk,
@@ -594,9 +904,14 @@ class SimulationEngine:
     ) -> tuple[dict[str, Quote], dict[str, dict[str, Any]]]:
         from backend.services.simulation.services.redis_series_quote import (
             fetch_series_ticks,
+            fetch_snapshot_ticks,
         )
 
-        ticks = await fetch_series_ticks(symbols)
+        ticks = dict(await fetch_series_ticks(symbols))
+        missing = [symbol for symbol in dict.fromkeys(symbols) if symbol not in ticks]
+        if missing:
+            # 全市场快照不依赖 WS 订阅落序列；与手动撮合共用新鲜度检查。
+            ticks.update(await fetch_snapshot_ticks(missing))
         quotes: dict[str, Quote] = {}
         indexed_ticks: dict[str, dict[str, Any]] = {}
         for symbol, tick in ticks.items():
@@ -635,6 +950,9 @@ class SimulationEngine:
             prefix = StockCodeUtil.to_prefix(sym)
             if prefix and prefix != sym:
                 quotes[prefix] = quote
+            suffix = StockCodeUtil.normalize(sym)
+            if suffix and suffix != sym:
+                quotes[suffix] = quote
         logger.info("SimulationEngine: 本地行情 %d bars", len(bars))
         return quotes
 
@@ -688,6 +1006,70 @@ class SimulationEngine:
             total_asset=float(data.get("total_asset", 0)),
             positions=data.get("positions", {}) or {},
         )
+
+    def _sim_gate_enabled(self) -> bool:
+        """模拟盘闸门风控开关（默认开，SIM_GATE_RISK_ENABLED=0 可逃生）。"""
+        import os as _os
+
+        return _os.getenv("SIM_GATE_RISK_ENABLED", "true").strip().lower() not in {
+            "0",
+            "false",
+            "no",
+            "off",
+        }
+
+    async def _load_sim_gate_rules(
+        self, db: AsyncSession, uid_int: int, market_str: str
+    ) -> list:
+        """加载适用于模拟盘的闸门类规则（SIMULATION/BOTH + 市场匹配）。
+
+        失败时 fail-open 返回 []，避免风控表异常拖垮整轮调仓。
+        """
+        try:
+            from backend.services.live_trading.services.risk_rule_types import (
+                GATE_RULE_TYPES,
+                rule_matches_market,
+                rule_matches_trading_mode,
+            )
+            from backend.services.live_trading.services.risk_service import RiskService
+
+            rules = await RiskService(db, self.redis).get_applicable_rules(uid_int)
+            gated = []
+            for rule in rules:
+                if str(getattr(rule, "rule_type", "")) not in GATE_RULE_TYPES:
+                    continue
+                params = getattr(rule, "parameters", None) or {}
+                if not isinstance(params, dict):
+                    continue
+                if not rule_matches_trading_mode(params.get("trading_mode"), "SIMULATION"):
+                    continue
+                if not rule_matches_market(params.get("markets"), market_str):
+                    continue
+                gated.append(rule)
+            return gated
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("SimulationEngine: 加载闸门风控规则失败, fail-open: %s", exc)
+            return []
+
+    @staticmethod
+    def _eval_sim_gate(
+        order_value: float,
+        portfolio_value: float,
+        daily_count: int,
+        gate_rules: list,
+    ) -> list[str]:
+        """评估 4 类闸门规则，与 RiskService.check_order_risk 同口径（仅闸门部分）。"""
+        from backend.services.live_trading.services.risk_service import RiskService
+
+        return RiskService.eval_gate_violations(
+            order_value, portfolio_value, daily_count, gate_rules
+        )
+
+    async def _sim_daily_order_count(
+        self, db: AsyncSession, tenant: str, uid_int: int
+    ) -> int:
+        """当日模拟单计数（排除已拒绝，与实盘口径对齐），失败返回 0。"""
+        return await count_sim_orders_today(db, tenant, uid_int)
 
     def _apply_risk_buy_locks(
         self,
@@ -881,8 +1263,15 @@ class SimulationEngine:
         run_id: str = "",
         live_tick: dict[str, Any] | None = None,
         allow_stale_fill: bool = False,
+        gate_rules: list | None = None,
+        portfolio_value: float = 0.0,
+        daily_trade_count: int = 0,
     ) -> ExecutionResult:
-        """执行单个订单（虚拟撮合；成功后按开关镜像一笔真单到 QMT）"""
+        """执行单个订单（虚拟撮合；成功后按开关镜像一笔真单到 QMT）
+
+        gate_rules 非空时先过管理后台闸门风控，不通过则落 REJECTED
+       （remarks 带 risk_blocked，前端交易记录可见），不进撮合。
+        """
         from backend.services.simulation.models.order import (
             OrderSide,
             OrderType,
@@ -935,6 +1324,27 @@ class SimulationEngine:
             )
         )
         await db.flush()
+
+        # 闸门风控（管理后台 risk_rules）：在撮合前拦截，落 REJECTED 可审计。
+        if gate_rules:
+            order_value = float(order.quantity or 0) * float(order.price or 0)
+            violations = self._eval_sim_gate(
+                order_value, portfolio_value, daily_trade_count, gate_rules
+            )
+            if violations:
+                message = ("risk_blocked: " + "; ".join(violations))[:500]
+                logger.info(
+                    "SimulationEngine: 闸门风控拦截 tenant=%s user=%s "
+                    "symbol=%s side=%s value=%.2f: %s",
+                    tenant_id,
+                    user_id,
+                    order.symbol,
+                    order.side,
+                    order_value,
+                    message,
+                )
+                await exec_engine.mark_rejected(sim_order, message)
+                return ExecutionResult(success=False, message=message)
 
         # allow_stale_fill 分支下不会走 assess_execution_window，此处先置 None，
         # 避免下游部分成交排队时引用未初始化变量（历史 UnboundLocalError）。

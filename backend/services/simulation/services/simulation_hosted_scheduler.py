@@ -6,8 +6,8 @@ import json
 import logging
 import math
 import os
-from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from dataclasses import dataclass, fields
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -22,6 +22,7 @@ from backend.services.trade_shared.redis_client import RedisClient
 from backend.services.simulation.services.rebalance_job_service import (
     SimulationRebalanceJobService,
 )
+from backend.services.simulation.services.rebalance_calculator import StrategyConfig
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +98,22 @@ def hosted_cycle_ready(phase: str) -> bool:
     return str(phase or "").upper() in {"BUY", "ALL"}
 
 
+def hosted_trade_enabled(*configs: dict[str, Any] | None) -> bool:
+    """All persisted permission scopes must permit automatic trading."""
+    for config in configs:
+        if not isinstance(config, dict):
+            continue
+        permission = str(config.get("trading_permission") or "").strip().lower()
+        if permission and permission != "trade_enabled":
+            return False
+        enabled = config.get("auto_trade_enabled")
+        if enabled is not None and str(enabled).strip().lower() in {
+            "false", "0", "no", "off",
+        }:
+            return False
+    return True
+
+
 def report_to_hosted_result(report: Any) -> dict[str, Any]:
     error = getattr(report, "error", None)
     ordered = int(getattr(report, "order_count", 0) or 0)
@@ -167,6 +184,109 @@ async def _resolve_hosted_signal_run_id(
     return signal_run_id, None
 
 
+async def _sync_hosted_sim_task(
+    *,
+    task_id: str,
+    tenant_id: str,
+    user_id: str,
+    strategy_id: str,
+    strategy_name: str,
+    live_trade_config: dict[str, Any],
+    trigger_context: dict[str, Any] | None = None,
+    result: dict[str, Any] | None = None,
+) -> None:
+    """把托管模拟调仓登记进实盘任务表 + 写日志流（复用实盘「任务日志」入口）。
+
+    模拟链路此前只写 simulation_rebalance_jobs，从不写实盘任务表与日志流，
+    导致 StrategyConsole 的「查看任务日志」永远空白。这里以 ``task_type=
+    hosted_sim`` 落一行（状态非 queued，避免被手动执行 worker 认领），并把关键
+    步骤写进 manual_execution_log_stream，前端无需改动即可查看。
+
+    best-effort：任何异常都吞掉，绝不影响调仓主流程。``result=None`` 表示开始。
+    """
+    task_id = str(task_id or "").strip()
+    if not task_id:
+        return
+    try:
+        from backend.services.live_trading.services.manual_execution_log_stream import (
+            manual_execution_log_stream,
+        )
+        from backend.services.live_trading.services.manual_execution_persistence import (
+            manual_execution_persistence,
+        )
+
+        if result is None:
+            await manual_execution_persistence.create_task(
+                task_id=task_id,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                strategy_id=strategy_id,
+                strategy_name=strategy_name or strategy_id,
+                run_id=task_id,
+                model_id="",
+                prediction_trade_date=datetime.now(_SH_TZ).date(),
+                trading_mode="SIMULATION",
+                request_payload={
+                    "source": "simulation_hosted",
+                    "live_trade_config": live_trade_config,
+                },
+                created_at=datetime.now(timezone.utc),
+                task_type="hosted_sim",
+                task_source="simulation_hosted",
+                trigger_mode="hosted",
+                trigger_context=trigger_context or {"run_id": task_id},
+                status="running",
+                stage="running",
+            )
+            manual_execution_log_stream.append_log(
+                task_id=task_id,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                line=f"[模拟托管] 调仓开始 strategy={strategy_id}",
+                stage="running",
+                status="running",
+                progress=0,
+            )
+            return
+
+        status = str(result.get("status") or "succeeded")
+        error = result.get("error")
+        await manual_execution_persistence.update_task(
+            task_id=task_id,
+            status=status,
+            stage=status,
+            order_count=int(result.get("order_count") or 0),
+            success_count=int(result.get("filled_count") or 0),
+            failed_count=int(result.get("rejected_count") or 0),
+            progress=100,
+            error_stage=None if status == "succeeded" else status,
+            error_message=str(error) if error else None,
+            result_payload=result,
+        )
+        tail = (
+            f" status={status} 信号={result.get('signal_count')}"
+            f" 订单={result.get('order_count')} 成交={result.get('filled_count')}"
+            f" 失败={result.get('rejected_count')}"
+        )
+        if error:
+            tail += f" error={error}"
+        manual_execution_log_stream.append_log(
+            task_id=task_id,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            line=f"[模拟托管] 调仓结束{tail}",
+            level="error" if status != "succeeded" else "info",
+            stage=status,
+            status=status,
+            progress=100,
+            summary=result,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "simulation hosted: 任务日志同步失败 task=%s error=%s", task_id, exc
+        )
+
+
 async def run_simulation_cycle_for_active(
     *,
     tenant_id: str,
@@ -174,12 +294,27 @@ async def run_simulation_cycle_for_active(
     strategy_id: str,
     live_trade_config: dict[str, Any] | None = None,
     run_id: str | None = None,
+    strategy_name: str | None = None,
+    trigger_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """托管模拟盘唯一执行入口：RebalanceCalculator + ashare_matcher。"""
     from backend.services.simulation.engine import simulation_engine
 
     cfg = _normalize_live_trade_config(live_trade_config)
-    params_override: dict[str, Any] = {}
+    if not hosted_trade_enabled(cfg):
+        return {
+            "task_id": run_id,
+            "status": "skipped",
+            "error": "automatic_trading_disabled",
+            "signal_count": 0,
+            "order_count": 0,
+            "filled_count": 0,
+        }
+    params_override = {
+        field.name: cfg[field.name]
+        for field in fields(StrategyConfig)
+        if cfg.get(field.name) is not None
+    }
     if cfg.get("pool_id"):
         params_override["pool_id"] = cfg["pool_id"]
     signal_run_id, gate_error = await _resolve_hosted_signal_run_id(
@@ -211,17 +346,35 @@ async def run_simulation_cycle_for_active(
                 "filled_count": 0,
             }
 
-    report = await simulation_engine.run_cycle(
-        tenant_id=tenant_id,
-        user_id=user_id,
-        strategy_id=strategy_id,
-        run_id=run_id,
-        params_override=params_override or None,
-        pool_id=cfg.get("pool_id"),
-        signal_run_id=signal_run_id,
-        max_orders=int(cfg.get("max_orders_per_cycle") or 0) or None,
-    )
-    return report_to_hosted_result(report)
+    task_common = {
+        "task_id": str(run_id or ""),
+        "tenant_id": tenant_id,
+        "user_id": user_id,
+        "strategy_id": strategy_id,
+        "strategy_name": strategy_name or strategy_id,
+        "live_trade_config": cfg,
+        "trigger_context": trigger_context,
+    }
+    await _sync_hosted_sim_task(**task_common)
+    try:
+        report = await simulation_engine.run_cycle(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            strategy_id=strategy_id,
+            run_id=run_id,
+            params_override=params_override or None,
+            pool_id=cfg.get("pool_id"),
+            signal_run_id=signal_run_id,
+            max_orders=int(cfg.get("max_orders_per_cycle") or 0) or None,
+        )
+    except Exception as exc:  # noqa: BLE001
+        await _sync_hosted_sim_task(
+            **task_common, result={"status": "failed", "error": str(exc)}
+        )
+        raise
+    result = report_to_hosted_result(report)
+    await _sync_hosted_sim_task(**task_common, result=result)
+    return result
 
 
 def _parse_started_at(value: Any) -> date | None:
@@ -589,6 +742,12 @@ class SimulationHostedScheduler:
             return False
         if str(active_data.get("mode") or "").upper() != "SIMULATION":
             return False
+        if not hosted_trade_enabled(
+            active_data,
+            active_data.get("execution_config"),
+            active_data.get("live_trade_config"),
+        ):
+            return False
 
         parts = key.split(":")
         if len(parts) < 4:
@@ -637,37 +796,29 @@ class SimulationHostedScheduler:
             trade_date=decision.trade_date,
             phase=decision.phase,
         )
-        await SimulationRebalanceJobService.ensure_job(
-            job_id=task_id,
-            tenant_id=tenant_id,
-            user_id=user_id,
-            strategy_id=strategy_id,
-            schedule_type=str(live_trade_config.get("schedule_type") or "interval"),
-            # TIMESTAMP WITHOUT TIME ZONE：必须写 naive 上海墙钟，否则 asyncpg 报
-            # offset-naive/aware 混算，整轮托管调仓会被 skip。
-            planned_run_at=now.astimezone(_SH_TZ).replace(microsecond=0, tzinfo=None),
-            window_seconds=max(
-                30, _to_int(live_trade_config.get("trigger_window_seconds"), 90)
-            ),
-            idempotency_key=lock_key,
-        )
-        await SimulationRebalanceJobService.mark_ready(task_id)
         try:
             if not self.redis.client.set(lock_key, task_id, ex=36 * 3600, nx=True):
-                await SimulationRebalanceJobService.mark_skipped(
-                    task_id,
-                    last_error="idempotency lock already exists for this execution window",
-                )
+                # 重复轮询不是作业跳过：不能覆盖成功/运行状态或移动执行窗口。
                 return False
         except Exception:
             logger.warning("failed to write simulation hosted lock: %s", lock_key)
-            await SimulationRebalanceJobService.mark_skipped(
-                task_id,
-                last_error="failed to acquire distributed execution lock",
-            )
             return False
 
         try:
+            await SimulationRebalanceJobService.ensure_job(
+                job_id=task_id,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                strategy_id=strategy_id,
+                schedule_type=str(live_trade_config.get("schedule_type") or "interval"),
+                # TIMESTAMP WITHOUT TIME ZONE：写入 naive 上海墙钟。
+                planned_run_at=now.astimezone(_SH_TZ).replace(microsecond=0, tzinfo=None),
+                window_seconds=max(
+                    30, _to_int(live_trade_config.get("trigger_window_seconds"), 90)
+                ),
+                idempotency_key=lock_key,
+            )
+            await SimulationRebalanceJobService.mark_ready(task_id)
             await SimulationRebalanceJobService.mark_started(task_id)
             result = await run_simulation_cycle_for_active(
                 tenant_id=tenant_id,
@@ -675,6 +826,13 @@ class SimulationHostedScheduler:
                 strategy_id=strategy_id,
                 live_trade_config=live_trade_config,
                 run_id=task_id,
+                strategy_name=str(active_data.get("strategy_name") or strategy_id),
+                trigger_context={
+                    "run_id": task_id,
+                    "phase": decision.phase,
+                    "trade_date": decision.trade_date,
+                    "trigger": "hosted_scheduler",
+                },
             )
             if result.get("status") == "skipped":
                 # 没有可用信号批次：本轮不建仓，作业标记为 skipped 而非失败。
@@ -702,10 +860,8 @@ class SimulationHostedScheduler:
                     result.get("error"),
                 )
                 return False
-            if result.get("status") == "failed" and result.get("error"):
-                err = str(result["error"])
-                if err not in {"无可用信号", "账户不存在"}:
-                    raise RuntimeError(err)
+            if result.get("status") != "succeeded":
+                raise RuntimeError(str(result.get("error") or "simulation cycle failed"))
             logger.info(
                 "simulation hosted cycle finished: tenant=%s user=%s strategy=%s phase=%s task=%s status=%s filled=%s",
                 tenant_id,
@@ -722,13 +878,15 @@ class SimulationHostedScheduler:
             )
             return True
         except Exception as exc:
-            await SimulationRebalanceJobService.mark_finished(
-                task_id,
-                status="failed",
-                last_error=str(exc),
-            )
             try:
-                self.redis.client.delete(lock_key)
-            except Exception:
-                pass
+                await SimulationRebalanceJobService.mark_finished(
+                    task_id,
+                    status="failed",
+                    last_error=str(exc),
+                )
+            finally:
+                try:
+                    self.redis.client.delete(lock_key)
+                except Exception:
+                    pass
             raise

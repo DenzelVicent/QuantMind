@@ -31,20 +31,25 @@ except ImportError:
 
 
 def _yf_symbol(symbol: str) -> str:
-    """Convert QuantMind symbol to Yahoo Finance ticker.
+    """Convert QuantMind symbol to Yahoo Finance ticker (external API param format kept).
 
     00700.HK -> 0700.HK  (strip one leading zero for HK)
     600519.SH -> 600519.SS (Shanghai)
     000001.SZ -> 000001.SZ (Shenzhen)
     AAPL     -> AAPL      (US unchanged)
+
+    输入经中枢先归一（A股前后缀/裸码双收；HK/US 分支先行，避免中枢误判 00xxx 为深市）。
     """
-    s = symbol.strip().upper()
-    if s.endswith(".HK"):
-        code = s.split(".")[0].lstrip("0") or "0"
+    from backend.shared.stock_utils import StockCodeUtil
+
+    raw = symbol.strip().upper()
+    if raw.endswith(".HK") or (raw.isdigit() and len(raw) == 5):
+        code = raw.split(".")[0].lstrip("0") or "0"
         # HK stocks are typically 4-digit codes
         if len(code) < 4:
             code = code.zfill(4)
         return f"{code}.HK"
+    s = StockCodeUtil.normalize(symbol) or raw
     if s.endswith(".SH"):
         return s.replace(".SH", ".SS")  # yfinance uses .SS for Shanghai
     return s

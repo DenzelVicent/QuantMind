@@ -66,8 +66,13 @@ class QuotePusher:
         self.push_task: asyncio.Task | None = None  # 中心化推送任务
         self.push_interval = 2.0  # 全局拉取间隔（秒）
         self.cache: dict[str, dict[str, Any]] = {}  # 行情缓存
+        # 本地 PG 落库保留（本机自己的库）；远端行情 Redis 只读，不发布。
         self.persist_to_db = True
-        self.write_series = True
+        # 远端行情 Redis 由上游统一提供，本容器默认只读：
+        # 需要回写时显式开启 STREAM_WRITE_SERIES / STREAM_PERSIST_STATS。
+        self.write_series = bool(settings.STREAM_WRITE_SERIES)
+        self.report_persist_stats = bool(settings.STREAM_PERSIST_STATS)
+        self._remote_write_warned = False
         self.warmup_symbols: set[str] = {
             s.strip() for s in (settings.STREAM_WARMUP_SYMBOLS or "").split(",") if s.strip()
         }
@@ -148,6 +153,7 @@ class QuotePusher:
                     await self._append_series_points(redis_source, results)
                 if self.persist_to_db and results:
                     await self._persist_quotes(results)
+                if self.report_persist_stats and results:
                     await self._report_persist_stats(len(results))
 
                 # 3. 分发数据
@@ -274,7 +280,11 @@ class QuotePusher:
                 ex=1800,
             )
         except Exception as e:
-            logger.warning(f"更新行情落库统计失败: {e}")
+            if not self._remote_write_warned:
+                self._remote_write_warned = True
+                logger.warning(
+                    "行情落库统计回写远端 Redis 失败（后续不再重复告警）: %s", e
+                )
 
     def _has_quote_changed(self, stock_code: str, new_data: dict[str, Any]) -> bool:
         """

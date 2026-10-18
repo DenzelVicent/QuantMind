@@ -434,6 +434,22 @@ def status_snapshot(redis: Any) -> dict[str, Any]:
 # --------------------------------------------------------------------------
 # 账户/行情
 # --------------------------------------------------------------------------
+def _symbol_variants(symbol: str) -> list[str]:
+    """symbol 的前后缀双变体（含原值大写），持仓匹配双收用。"""
+    s = str(symbol or "").strip().upper()
+    if not s:
+        return []
+    try:
+        from backend.shared.stock_utils import StockCodeUtil as _SCU
+    except Exception:  # noqa: BLE001
+        return [s]
+    out = [s]
+    for v in (_SCU.to_suffix(s), _SCU.to_prefix(s)):
+        if v and v not in out:
+            out.append(v)
+    return out
+
+
 async def _account_snapshot(force: bool = False) -> dict[str, Any]:
     """QMT 账户（资金 + 持仓），10s 进程内缓存。"""
     now = asyncio.get_running_loop().time()
@@ -451,7 +467,9 @@ async def _account_snapshot(force: bool = False) -> dict[str, Any]:
     for item in positions:
         symbol = str(item.get("symbol") or "").upper()
         if symbol:
-            available[symbol] = float(item.get("can_use_volume") or 0)
+            vol = float(item.get("can_use_volume") or 0)
+            for key in _symbol_variants(symbol):
+                available[key] = vol
     data = {
         "cash": float(asset.get("cash") or 0),
         "total_asset": float(asset.get("total_asset") or 0),
@@ -921,7 +939,12 @@ async def _submit_payload(
             )
             return _skip("insufficient_cash")
     else:
-        available = float((account.get("available_volume") or {}).get(symbol) or 0)
+        avail_map = account.get("available_volume") or {}
+        available = 0.0
+        for key in _symbol_variants(symbol):
+            if key in avail_map:
+                available = float(avail_map.get(key) or 0)
+                break
         if available < quantity:
             logger.warning(
                 "[Mirror] 可用持仓不足 symbol=%s 需要=%s 可用=%s",

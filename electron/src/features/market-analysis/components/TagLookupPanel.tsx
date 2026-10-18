@@ -13,6 +13,7 @@ import {
 import { Input, Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { SERVICE_ENDPOINTS } from '../../../config/services';
+import { normalizeSymbol } from '../../../utils/portfolioUtils';
 
 const MARKET_ANALYSIS_API = `${SERVICE_ENDPOINTS.USER_SERVICE}/market-analysis`;
 
@@ -44,7 +45,7 @@ const MISSING = <span className="font-mono text-xs text-slate-300">—</span>;
 export const TagLookupPanel: React.FC = () => {
   const [perspective, setPerspective] = useState<'stock' | 'sector'>('stock');
   const [sectorFilter, setSectorFilter] = useState<string>('全部');
-  const [searchQuery, setSearchQuery] = useState('SH600000');
+  const [searchQuery, setSearchQuery] = useState('600000.SH');
   const [loading, setLoading] = useState(false);
   const [statsLoading, setStatsLoading] = useState(false);
 
@@ -74,7 +75,8 @@ export const TagLookupPanel: React.FC = () => {
   };
 
   const handleStockSearch = async (symbol: string) => {
-    const q = symbol.trim();
+    // 发送前归一为后缀式
+    const q = normalizeSymbol(symbol.trim());
     if (!q) return;
     setSearchQuery(q);
     setActiveSymbol(q);
@@ -128,13 +130,13 @@ export const TagLookupPanel: React.FC = () => {
       if (first) handleTagSearch(first);
       else setSearchQuery('');
     } else {
-      handleStockSearch('SH600000');
+      handleStockSearch('600000.SH');
     }
   };
 
   useEffect(() => {
     fetchStats();
-    handleStockSearch('SH600000');
+    handleStockSearch('600000.SH');
   }, []);
 
   const hotTagsList: HotTagItem[] = stats?.hot_tags || [];

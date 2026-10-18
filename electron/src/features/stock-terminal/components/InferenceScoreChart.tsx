@@ -4,6 +4,7 @@ import { TrendingUp, TrendingDown, RefreshCw } from 'lucide-react';
 import { Spin } from 'antd';
 import ReactECharts from 'echarts-for-react';
 import { modelTrainingService } from '../../../services/modelTrainingService';
+import { normalizeSymbol } from '../../../utils/portfolioUtils';
 
 interface Props {
   symbol: string; // suffix 600519.SH
@@ -41,12 +42,12 @@ export function InferenceScoreChart({ symbol, modelId, selectedDate, onPointClic
     }
     let cancelled = false;
     setLoading(true);
-    const code = symbol.split('.')[0];
+    const suffixCode = normalizeSymbol(symbol);
     // 传 model_id（如有）：后端按指定模型返回 pred 分数；否则锁定用户默认模型。
     // days 由调用方控制窗口（个股终端传 750 保证覆盖最长 2 年的 K 线）
     // endDate 指定时窗口以基准日为终点，保证与上方K线重叠（个股推理30天小卡）
     modelTrainingService
-      .getStockInferenceHistory(code, days, modelId || undefined, endDate || undefined)
+      .getStockInferenceHistory(suffixCode, days, modelId || undefined, endDate || undefined)
       .then((resp) => {
         if (cancelled) return;
         const pts: Point[] = (resp.items ?? [])

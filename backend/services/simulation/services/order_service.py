@@ -23,7 +23,7 @@ class SimOrderService:
         try:
             from backend.shared.stock_utils import StockCodeUtil
 
-            symbol = StockCodeUtil.to_prefix(data.symbol) or data.symbol.upper()
+            symbol = StockCodeUtil.normalize(data.symbol) or data.symbol.upper()
         except Exception:
             symbol = data.symbol.upper()
         order = SimOrder(
@@ -113,7 +113,15 @@ class SimOrderService:
             except ValueError:
                 conditions.append(false())
         if symbol:
-            conditions.append(SimOrder.symbol == symbol.upper())
+            # 落库已收敛为后缀正典；老 prefix 行读兼容（suffix 优先、prefix 兜底）。
+            from backend.shared.stock_utils import StockCodeUtil as _SCU
+
+            _sfx = _SCU.normalize(symbol)
+            _pfx = _SCU.to_prefix(symbol)
+            if _sfx and _pfx and _sfx != _pfx:
+                conditions.append(SimOrder.symbol.in_([_sfx, _pfx]))
+            else:
+                conditions.append(SimOrder.symbol == (_sfx or symbol.upper()))
         if start_date:
             conditions.append(SimOrder.created_at >= start_date)
         if end_date:
